@@ -2,6 +2,13 @@
 <!DOCTYPE html>
 <html dir='rtl' id='htmlRoot' lang='ar' xmlns='http://www.w3.org/1999/xhtml' xmlns:b='http://www.google.com/2005/gml/b' xmlns:data='http://www.google.com/2005/gml/data' xmlns:expr='http://www.google.com/2005/gml/expr'>
 <head>
+  <script type='text/javascript'>
+var uri = window.location.toString();
+if (uri.indexOf(&quot;?m=1&quot;,&quot;?m=1&quot;) &gt; 0) {
+  var clean_uri = uri.substring(0, uri.indexOf(&quot;?m=1&quot;));
+  window.history.replaceState({}, document.title, clean_uri);
+}
+</script>
     <meta charset='UTF-8'/>
     <meta content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no' name='viewport'/>
     
