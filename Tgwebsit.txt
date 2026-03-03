@@ -427,7 +427,7 @@ footer {
                 <h2 class='section-title' lang-role='ar'>آخر المقالات والتحديثات</h2>
                 <h2 class='section-title' lang-role='en'>Latest Updates</h2>
                 <b:section id='main-home-section' showaddelement='yes'>
-                  <b:widget id='Blog2' locked='false' title='رسائل المدونة الإلكترونية' type='Blog'>
+                  <b:widget id='Blog2' locked='false' title='رسائل المدونة الإلكترونية' type='Blog' version='1'>
                     <b:widget-settings>
                       <b:widget-setting name='showDateHeader'>true</b:widget-setting>
                       <b:widget-setting name='style.textcolor'>#ffffff</b:widget-setting>
@@ -530,7 +530,7 @@ footer {
       </div>
     <b:else/>
       <a class='comment-delete' expr:href='data:comment.deleteUrl' expr:title='data:top.deleteCommentMsg'>
-        <img src='https://resources.blogblog.com/img/icon_delete13.gif'/>
+        <img alt='حذف' src='https://resources.blogblog.com/img/icon_delete13.gif'/>
       </a>
     </b:if>
   </span>
@@ -578,7 +578,7 @@ footer {
           <b:loop values='data:post.comments' var='comment'>
             <dt expr:class='&quot;comment-author &quot; + data:comment.authorClass' expr:id='data:comment.anchorName'>
               <b:if cond='data:comment.favicon'>
-                <img expr:src='data:comment.favicon' height='16px' style='margin-bottom:-2px;' width='16px'/>
+                <img alt='favicon' expr:src='data:comment.favicon' height='16px' style='margin-bottom:-2px;' width='16px'/>
               </b:if>
               <a expr:name='data:comment.anchorName'/>
               <b:if cond='data:blog.enabledCommentProfileImages'>
@@ -700,7 +700,7 @@ footer {
           <b:if cond='data:post.thumbnailUrl'>
             <div class='mobile-index-thumbnail'>
               <div class='Image'>
-                <img expr:src='data:post.thumbnailUrl'/>
+                <img expr:alt='data:post.title' expr:src='data:post.thumbnailUrl' expr:title='data:post.title'/>
               </div>
             </div>
           </b:if>
@@ -949,7 +949,7 @@ footer {
         <b:if cond='data:post.emailPostUrl'>
           <span class='item-action'>
           <a expr:href='data:post.emailPostUrl' expr:title='data:top.emailPostMsg'>
-            <img alt='' class='icon-action' height='13' src='https://resources.blogblog.com/img/icon18_email.gif' width='18'/>
+            <img alt='ارسل بريد' class='icon-action' height='13' src='https://resources.blogblog.com/img/icon18_email.gif' width='18'/>
           </a>
           </span>
         </b:if>
@@ -987,7 +987,7 @@ footer {
       <b:if cond='data:post.authorAboutMe'>
         <div class='author-profile' itemprop='author' itemscope='itemscope' itemtype='http://schema.org/Person'>
           <b:if cond='data:post.authorPhoto.url'>
-            <img expr:src='data:post.authorPhoto.url' itemprop='image' width='50px'/>
+            <img expr:alt='data:post.author' expr:src='data:post.authorPhoto.url' itemprop='image' width='50px'/>
           </b:if>
           <div>
             <a class='g-profile' expr:href='data:post.authorProfileUrl' itemprop='url' rel='author' title='author profile'>
@@ -1004,7 +1004,7 @@ footer {
   <b:if cond='data:post.editUrl'>
     <span expr:class='&quot;item-control &quot; + data:post.adminClass'>
       <a expr:href='data:post.editUrl' expr:title='data:top.editPostMsg'>
-        <img alt='' class='icon-action' height='18' src='https://resources.blogblog.com/img/icon18_edit_allbkg.gif' width='18'/>
+        <img alt='تعديل سريع' class='icon-action' height='18' src='https://resources.blogblog.com/img/icon18_edit_allbkg.gif' width='18'/>
       </a>
     </span>
   </b:if>
@@ -1282,7 +1282,7 @@ footer {
         <b:if cond='data:blog.pageType in {&quot;static_page&quot;, &quot;item&quot;}'>
             <div class='inner-page-container'>
                 <b:section id='main-content-inner' showaddelement='yes'>
-                  <b:widget id='Blog1' locked='true' title='رسائل المدونة الإلكترونية' type='Blog'>
+                  <b:widget id='Blog1' locked='true' title='رسائل المدونة الإلكترونية' type='Blog' version='1'>
                     <b:widget-settings>
                       <b:widget-setting name='showDateHeader'>true</b:widget-setting>
                       <b:widget-setting name='style.textcolor'>#ffffff</b:widget-setting>
@@ -1385,7 +1385,7 @@ footer {
       </div>
     <b:else/>
       <a class='comment-delete' expr:href='data:comment.deleteUrl' expr:title='data:top.deleteCommentMsg'>
-        <img src='https://resources.blogblog.com/img/icon_delete13.gif'/>
+        <img alt='حذف' src='https://resources.blogblog.com/img/icon_delete13.gif'/>
       </a>
     </b:if>
   </span>
@@ -1433,7 +1433,7 @@ footer {
           <b:loop values='data:post.comments' var='comment'>
             <dt expr:class='&quot;comment-author &quot; + data:comment.authorClass' expr:id='data:comment.anchorName'>
               <b:if cond='data:comment.favicon'>
-                <img expr:src='data:comment.favicon' height='16px' style='margin-bottom:-2px;' width='16px'/>
+                <img alt='icon' expr:src='data:comment.favicon' height='16px' style='margin-bottom:-2px;' width='16px'/>
               </b:if>
               <a expr:name='data:comment.anchorName'/>
               <b:if cond='data:blog.enabledCommentProfileImages'>
@@ -1555,7 +1555,7 @@ footer {
           <b:if cond='data:post.thumbnailUrl'>
             <div class='mobile-index-thumbnail'>
               <div class='Image'>
-                <img expr:src='data:post.thumbnailUrl'/>
+                <img expr:alt='data:post.title' expr:src='data:post.thumbnailUrl' expr:title='data:post.title'/>
               </div>
             </div>
           </b:if>
@@ -1804,7 +1804,7 @@ footer {
         <b:if cond='data:post.emailPostUrl'>
           <span class='item-action'>
           <a expr:href='data:post.emailPostUrl' expr:title='data:top.emailPostMsg'>
-            <img alt='' class='icon-action' height='13' src='https://resources.blogblog.com/img/icon18_email.gif' width='18'/>
+            <img alt='بريد' class='icon-action' height='13' src='https://resources.blogblog.com/img/icon18_email.gif' width='18'/>
           </a>
           </span>
         </b:if>
@@ -1842,7 +1842,7 @@ footer {
       <b:if cond='data:post.authorAboutMe'>
         <div class='author-profile' itemprop='author' itemscope='itemscope' itemtype='http://schema.org/Person'>
           <b:if cond='data:post.authorPhoto.url'>
-            <img expr:src='data:post.authorPhoto.url' itemprop='image' width='50px'/>
+            <img expr:alt='data:post.author' expr:src='data:post.authorPhoto.url' itemprop='image' width='50px'/>
           </b:if>
           <div>
             <a class='g-profile' expr:href='data:post.authorProfileUrl' itemprop='url' rel='author' title='author profile'>
@@ -1859,7 +1859,7 @@ footer {
   <b:if cond='data:post.editUrl'>
     <span expr:class='&quot;item-control &quot; + data:post.adminClass'>
       <a expr:href='data:post.editUrl' expr:title='data:top.editPostMsg'>
-        <img alt='' class='icon-action' height='18' src='https://resources.blogblog.com/img/icon18_edit_allbkg.gif' width='18'/>
+        <img alt='تعديل سريع' class='icon-action' height='18' src='https://resources.blogblog.com/img/icon18_edit_allbkg.gif' width='18'/>
       </a>
     </span>
   </b:if>
