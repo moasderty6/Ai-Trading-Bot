@@ -12,12 +12,15 @@ if (uri.indexOf(&quot;?m=1&quot;,&quot;?m=1&quot;) &gt; 0) {
     <meta charset='UTF-8'/>
     <meta content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no' name='viewport'/>
     
-    <b:if cond='data:blog.url == data:blog.homepageUrl'>
+        <b:if cond='data:blog.url == data:blog.homepageUrl'>
         <title>NaiF CHarT | بوت تحليل العملات الرقمية وصيد الحيتان</title>
         <meta content='NaiF CHarT هو البوت الأقوى لتحليل العملات الرقمية، تتبع الحيتان، واقتناص فرص الانفجار السعري باستخدام الذكاء الاصطناعي.' name='description'/>
-        <meta content='بوت تليجرام، تحليل العملات، صيد الحيتان، كريبتو، Naif Chart، توصيات عملات' name='keywords'/>
     <b:else/>
-        <title><data:blog.pageName/> | NaiF CHarT</title>
+        <b:if cond='data:blog.pageType == &quot;error_page&quot;'>
+            <title>404: الصفحة غير موجودة | NaiF CHarT</title>
+        <b:else/>
+            <title><data:blog.pageName/>NaiF CHarT | بوت تحليل العملات</title>
+        </b:if>
     </b:if>
     <meta content='website' property='og:type'/>
     <meta content='NaiF CHarT' property='og:site_name'/>
