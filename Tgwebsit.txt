@@ -2,6 +2,7 @@
 <!DOCTYPE html>
 <html dir='rtl' id='htmlRoot' lang='ar' xmlns='http://www.w3.org/1999/xhtml' xmlns:b='http://www.google.com/2005/gml/b' xmlns:data='http://www.google.com/2005/gml/data' xmlns:expr='http://www.google.com/2005/gml/expr'>
 <head>
+  <link href='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css' rel='stylesheet'/>
   <script type='text/javascript'>
 var uri = window.location.toString();
 if (uri.indexOf(&quot;?m=1&quot;,&quot;?m=1&quot;) &gt; 0) {
@@ -121,7 +122,6 @@ footer {
     margin-bottom: 0 !important;
 }
     ]]></b:skin>
-
     <style>
         :root {
             --primary: #00d2ff;
@@ -307,9 +307,11 @@ footer {
         </nav>
 
         <b:if cond='data:blog.url == data:blog.homepageUrl'>
-            <section class='hero'>
-                <h1 lang-role='ar'>NaiF CHarT | بوت تحليل العملات</h1>
-                <h1 lang-role='en'>NaiF CHarT | Crypto Analyzer Bot</h1>
+                        <section class='hero'>
+                <h1 style='display:none;'>NaiF CHarT | بوت تحليل العملات الرقمية وصيد الحيتان - Crypto Analyzer Bot</h1>
+
+                <h2 class='section-title' lang-role='ar' style='font-size: clamp(1.8rem, 8vw, 3.8rem); margin-bottom: 15px; color: #fff; text-shadow: 0 0 25px var(--primary);'>NaiF CHarT | بوت تحليل العملات</h2>
+                <h2 class='section-title' lang-role='en' style='font-size: clamp(1.8rem, 8vw, 3.8rem); margin-bottom: 15px; color: #fff; text-shadow: 0 0 25px var(--primary);'>NaiF CHarT | Crypto Analyzer Bot</h2>
 
                 <p class='hero-desc' lang-role='ar'>الذكاء الاصطناعي الأقوى لتحليل الاتجاه وصيد الحيتان 🐋</p>
                 <p class='hero-desc' lang-role='en'>The Strongest AI for Trend Analysis &amp; Whale Hunting 🐋</p>
@@ -330,7 +332,6 @@ footer {
                     <span lang-role='en'>Enter Bot Now 🚀</span>
                 </a>
             </section>
-
             <section id='features'>
                 <h2 class='section-title' lang-role='ar'>لماذا يختارنا المحترفون&#1567;</h2>
                 <h2 class='section-title' lang-role='en'>Why Professionals Choose Us?</h2>
@@ -2126,11 +2127,29 @@ footer {
             </div>
         </b:if>
 
-        <footer>
-            <div class='logo' style='font-size: 1rem; margin-bottom: 10px;'>NAIF CHART</div>
-            <p>NaiF CHarT AI &#169; 2026 | World&#39;s Smartest Crypto Bot</p>
-            <p>Support: @AiCryptoGPTbot</p>
-        </footer>
+        <footer style='background: #0a0f1e; border-top: 1px solid rgba(255,255,255,0.05); padding: 40px 20px; text-align: center; margin-top: 50px;'>
+    
+    <div style='margin-bottom: 25px; display: flex; justify-content: center; gap: 15px;'>
+        <a href='https://api.whatsapp.com/send?text=Check%20out%20Naif%20Chart!%20https://t.me/AiCryptoGPTbot' style='background: rgba(37, 211, 102, 0.15); color: #25D366; width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; text-decoration: none; border: 1px solid rgba(37, 211, 102, 0.3); transition: 0.3s;' target='_blank'>
+            <i class='fa-brands fa-whatsapp' style='font-size: 22px;'/>
+        </a>
+        <a href='https://t.me/share/url?url=https://t.me/AiCryptoGPTbot&amp;text=Naif%20Chart%20Crypto%20Bot' style='background: rgba(0, 136, 204, 0.15); color: #0088cc; width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; text-decoration: none; border: 1px solid rgba(0, 136, 204, 0.3); transition: 0.3s;' target='_blank'>
+            <i class='fa-brands fa-telegram' style='font-size: 22px;'/>
+        </a>
+        <a href='https://twitter.com/intent/tweet?url=https://t.me/AiCryptoGPTbot&amp;text=Naif%20Chart' style='background: rgba(255, 255, 255, 0.05); color: #fff; width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; text-decoration: none; border: 1px solid rgba(255, 255, 255, 0.1); transition: 0.3s;' target='_blank'>
+            <i class='fa-brands fa-x-twitter' style='font-size: 20px;'/>
+        </a>
+    </div>
+
+    <div style='font-family: &apos;Segoe UI&apos;, Tahoma, Geneva, Verdana, sans-serif;'>
+        <p style='color: #ffffff; opacity: 0.7; font-size: 0.95rem; margin: 0 0 10px 0; letter-spacing: 0.5px;'>
+            NaiF CHarT AI &#169; 2026 | World&#39;s Smartest Crypto Bot
+        </p>
+        <p style='color: #00ffcc; font-weight: 600; font-size: 0.9rem; margin: 0;'>
+            Support: <a href='https://t.me/AiCryptoGPTbot' style='color: #00ffcc; text-decoration: none; border-bottom: 1px solid #00ffcc33;'>@AiCryptoGPTbot</a>
+        </p>
+    </div>
+</footer>
     </div>
 
     <button class='lang-btn' onclick='toggleLang()'>EN / العربية</button>
