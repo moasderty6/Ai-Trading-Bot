@@ -294,14 +294,20 @@ footer {
     <div class='content-wrapper'>
         <nav>
             <div class='logo'>NAIF CHART</div>
-            <div class='nav-links'>
-                <a href='/' lang-role='ar'>الرئيسية</a>
-                <a href='/' lang-role='en'>Home</a>
-                <a href='https://www.tgcryptobot.com/p/about-us.html' lang-role='ar'>من نحن</a>
-                <a href='https://www.tgcryptobot.com/p/about-us.html' lang-role='en'>About</a>
-                <a href='https://www.tgcryptobot.com/p/contact-us.html' lang-role='ar'>اتصل بنا</a>
-                <a href='https://www.tgcryptobot.com/p/contact-us.html' lang-role='en'>Contact</a>
-            </div>
+<div class='nav-links'>
+    <a href='/' lang-role='ar'>الرئيسية</a>
+    <a href='/' lang-role='en'>Home</a>
+
+    <a href='https://www.tgcryptobot.com/p/about-us.html' lang-role='ar'>من نحن</a>
+    <a href='https://www.tgcryptobot.com/p/about-us.html' lang-role='en'>About</a>
+
+    <a href='https://www.tgcryptobot.com/p/contact-us.html' lang-role='ar'>اتصل بنا</a>
+    <a href='https://www.tgcryptobot.com/p/contact-us.html' lang-role='en'>Contact</a>
+
+    <!-- إضافة Docs -->
+    <a href='https://www.tgcryptobot.com/p/95.html' lang-role='ar'>التوثيق</a>
+    <a href='https://www.tgcryptobot.com/p/95.html' lang-role='en'>Docs</a>
+</div>
         </nav>
         <b:if cond='data:blog.url == data:blog.homepageUrl'>
                         <section class='hero'>
