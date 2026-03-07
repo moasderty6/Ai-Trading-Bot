@@ -289,7 +289,16 @@ footer {
             .btn-action { padding: 12px 25px; font-size: 1rem; }
             h1 { font-size: 1.6rem !important; }
         }
-    </style>
+h1[lang-role=&quot;ar&quot;],
+h2[lang-role=&quot;ar&quot;],
+h3[lang-role=&quot;ar&quot;],
+p[lang-role=&quot;ar&quot;],
+.post-title[lang-role=&quot;ar&quot;],
+.hero-desc[lang-role=&quot;ar&quot;],
+summary[lang-role=&quot;ar&quot;] {
+    font-family: &#39;Cairo&#39;, sans-serif !important;
+}
+   </style>
 </head>
 <body id='bodyNode'>
     <div id='particles-js'/>
