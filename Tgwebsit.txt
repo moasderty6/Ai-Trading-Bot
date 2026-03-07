@@ -2,17 +2,19 @@
 <!DOCTYPE html>
 <html dir='rtl' id='htmlRoot' lang='ar' xmlns='http://www.w3.org/1999/xhtml' xmlns:b='http://www.google.com/2005/gml/b' xmlns:data='http://www.google.com/2005/gml/data' xmlns:expr='http://www.google.com/2005/gml/expr'>
 <head>
-  <link href='https://www.tgcryptobot.com/' rel='canonical'/>
+    <link href='https://www.tgcryptobot.com/' rel='canonical'/>
     <meta charset='UTF-8'/>
     <meta content='width=device-width, initial-scale=1.0' name='viewport'/>
-        <b:if cond='data:blog.url == data:blog.homepageUrl'>
-        <title>NaiF CHarT | بوت تحليل العملات الرقمية وصيد الحيتان</title>
-        <meta content='NaiF CHarT هو البوت الأقوى لتحليل العملات الرقمية، تتبع الحيتان، واقتناص فرص الانفجار السعري باستخدام الذكاء الاصطناعي.' name='description'/>
+
+    <b:if cond='data:blog.url == data:blog.homepageUrl'>
+        <title>NaiF CHarT | بوت تحليل العملات الرقمية | Crypto Whale Tracker</title>
+        
+        <meta content='NaiF CHarT هو البوت الأقوى لتحليل العملات الرقمية وتتبع الحيتان باستخدام الذكاء الاصطناعي|The most powerful AI-based crypto analysis and whale tracking bot.' name='description'/>
     <b:else/>
         <b:if cond='data:blog.pageType == &quot;error_page&quot;'>
             <title>404: الصفحة غير موجودة | NaiF CHarT</title>
         <b:else/>
-            <title><data:blog.pageName/>NaiF CHarT | بوت تحليل العملات</title>
+            <title><data:blog.pageName/>NaiF CHarT</title>
         </b:if>
     </b:if>
     <meta content='website' property='og:type'/>
@@ -307,6 +309,8 @@ footer {
     <!-- إضافة Docs -->
     <a href='https://www.tgcryptobot.com/p/95.html' lang-role='ar'>التوثيق</a>
     <a href='https://www.tgcryptobot.com/p/95.html' lang-role='en'>Docs</a>
+   <a href='https://www.tgcryptobot.com/p/legal.html' lang-role='ar'>قانوني</a>
+    <a href='https://www.tgcryptobot.com/p/legal.html' lang-role='en'>Legal</a>
 </div>
         </nav>
         <b:if cond='data:blog.url == data:blog.homepageUrl'>
@@ -317,14 +321,14 @@ footer {
                 <p class='hero-desc' lang-role='ar'>الذكاء الاصطناعي الأقوى لتحليل الاتجاه وصيد الحيتان 🐋</p>
                 <p class='hero-desc' lang-role='en'>The Strongest AI for Trend Analysis &amp; Whale Hunting 🐋</p>
                 <div class='counters-container'>
-                    <div class='counter-pill'>
-                        <span class='num' id='totalUsers'>60477</span>
-                        <small lang-role='ar'>عضو مجاني</small><small lang-role='en'>FREE Members</small>
-                    </div>
-                    <div class='counter-pill vip'>
-                        <span class='num' id='vipUsers'>7328</span>
-                        <small lang-role='ar'>عضو VIP</small><small lang-role='en'>VIP Members</small>
-                    </div>
+    <div class='counter-pill' style='display: flex; align-items: center; justify-content: center; white-space: nowrap; gap: 8px;'>
+        <span class='num' id='totalUsers'>60477</span>
+        <small lang-role='ar'>عضو مجاني</small><small lang-role='en'>FREE Members</small>
+    </div>
+    <div class='counter-pill vip' style='display: flex; align-items: center; justify-content: center; white-space: nowrap; gap: 8px;'>
+        <span class='num' id='vipUsers'>7328</span>
+        <small lang-role='ar'>عضو VIP</small><small lang-role='en'>VIP Members</small>
+    </div>
                 </div>
                 <a class='btn-action' href='https://t.me/AiCryptoGPTbot'>
                     <span lang-role='ar'>دخول البوت الآن 🚀</span>
@@ -2037,10 +2041,10 @@ footer {
   </div>
   <div style='font-family: &apos;Segoe UI&apos;, Tahoma, Geneva, Verdana, sans-serif;'>
     <p style='color: #ffffff; opacity: 0.7; font-size: 0.95rem; margin: 0 0 10px 0; letter-spacing: 0.5px;'>
-      NaiF CHarT AI &#169; 2026 | World&#39;s Smartest Crypto Bot
+      NaiF CHarT &#169; 2026 | World&#39;s Smartest AI Crypto Bot
     </p>
     <p style='color: #00ffcc; font-weight: 600; font-size: 0.9rem; margin: 0;'>
-      Support: <a href='https://t.me/AiCryptoGPTbot' style='color: #00ffcc; text-decoration: none; border-bottom: 1px solid #00ffcc33;'>@AiCryptoGPTbot</a>
+      Support: <a href='mailto:support@tgcryptobot.com' style='color: #00ffcc; text-decoration: none; border-bottom: 1px solid #00ffcc33;'>support@tgcryptobot.com</a>
     </p>
   </div>
 </footer>
