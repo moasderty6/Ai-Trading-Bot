@@ -219,7 +219,6 @@ footer {
             margin-bottom: 40px; font-family: &#39;Orbitron&#39;, sans-serif;
             text-shadow: 0 0 10px var(--primary);
         }
-
         .grid {
             display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 25px;
         }
@@ -240,13 +239,23 @@ footer {
         details { background: var(--dark-card); padding: 18px; border-radius: 12px; margin-bottom: 12px; cursor: pointer; border: 1px solid #1a1a1a; transition: 0.3s; }
         details:hover { border-color: var(--primary); }
         
-        summary { font-weight: 900; color: var(--primary); font-size: 1.1rem; list-style: none; outline: none; display: block; }
+        summary {
+    font-weight: 900;
+    color: var(--primary);
+    font-size: 1.1rem;
+    list-style: none;
+    outline: none;
+    display: block;
+    line-height: 1.6;
+    word-break: normal;
+    overflow-wrap: break-word;
+}
         
         summary span[lang-role=&quot;ar&quot;], 
         summary span[lang-role=&quot;en&quot;] { display: none; }
 
-        #htmlRoot[dir=&#39;rtl&#39;] summary span[lang-role=&quot;ar&quot;] { display: inline-block !important; }
-        #htmlRoot[dir=&#39;ltr&#39;] summary span[lang-role=&quot;en&quot;] { display: inline-block !important; }
+        #htmlRoot[dir=&#39;rtl&#39;] summary span[lang-role=&quot;ar&quot;] { display: inline !important; }
+#htmlRoot[dir=&#39;ltr&#39;] summary span[lang-role=&quot;en&quot;] { display: inline !important; }
 
         details p { padding-top: 15px; font-size: 0.95rem; color: #aaa; border-top: 1px solid #222; margin-top: 10px; }
 
