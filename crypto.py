@@ -262,6 +262,21 @@ async def admin_cmd(m: types.Message):
         "📌 للتواصل مع الدعم، يرجى التواصل مع هذا الحساب:\n@AiCrAdmin\n\n"
         "📌 For support, contact:\n@AiCrAdmin"
     )
+@dp.message(Command("clean"))
+async def clean_db_cmd(m: types.Message):
+    if m.from_user.id != ADMIN_USER_ID:
+        return await m.answer("❌ لا تملك صلاحية استخدام هذا الأمر.")
+    
+    pool = dp['db_pool']
+    async with pool.acquire() as conn:
+        # حذف المستخدمين الذين ليس لديهم تجربة ولم يشتركوا
+        deleted_count = await conn.execute("""
+            DELETE FROM users_info
+            WHERE user_id NOT IN (SELECT user_id FROM paid_users)
+            AND user_id NOT IN (SELECT user_id FROM trial_users)
+        """)
+    
+    await m.answer(f"✅ تم تنظيف قاعدة البيانات. عدد المستخدمين المحذوفين: {deleted_count}")
     
 @dp.message(Command("start"))
 async def start_cmd(m: types.Message):
@@ -376,7 +391,8 @@ async def run_analysis(cb: types.CallbackQuery):
         return
 
     lang, sym, price, tf = data['lang'], data['sym'], data['price'], cb.data.replace("tf_", "")
-    
+
+    # --- تحقق من الاشتراك / التجربة ---
     if not (await is_user_paid(pool, uid)) and not (await has_trial(pool, uid)):
         return await cb.message.edit_text(
             "⚠️ انتهت تجربتك المجانية." if lang=="ar" else "⚠️ Trial ended.",
@@ -389,17 +405,58 @@ async def run_analysis(cb: types.CallbackQuery):
         )
     except:
         pass
-    
-    # --- برومبت التحليل ---
-    if lang == "ar":
-        prompt = (f"سعر العملة {sym} الآن هو {price:.6f}$.\nقم بتحليل التشارت للإطار الزمني {tf} باستخدام مؤشرات شاملة:\n"
-                  f"- خطوط الدعم والمقاومة\n- RSI, MACD, MA\n- Bollinger Bands\n- Fibonacci Levels\n- Stochastic Oscillator\n- Volume Analysis\n- Trendlines باستخدام Regression\n"
-                  f"ثم قدم:\n1. تقييم عام (صعود أم هبوط؟)\n2. أقرب مقاومة ودعم\n3. ثلاثة أهداف مستقبلية (قصير، متوسط، بعيد المدى)\n✅ استخدم العربية فقط\n❌ لا تشرح المشروع، فقط تحليل التشارت")
-    else:
-        prompt = (f"The current price of {sym} is ${price:.6f}.\nAnalyze the {tf} chart using comprehensive indicators:\n"
-                  f"- Support and Resistance\n- RSI, MACD, MA\n- Bollinger Bands\n- Fibonacci Levels\n- Stochastic Oscillator\n- Volume Analysis\n- Trendlines using Regression\n"
-                  f"Then provide:\n1. General trend (up/down)\n2. Nearest resistance/support\n3. Three future price targets\n✅ Answer in English only\n❌ Don't explain the project, only chart analysis")
 
+    # --- برومبت التحليل منسق ---
+    if lang == "ar":
+        prompt = (
+            f"سعر العملة {sym} الحالي: {price:.6f}$\n"
+            f"الإطار الزمني للتحليل: {tf}\n\n"
+            f"📊 **تحليل شامل:**\n"
+            f"- الاتجاه العام: \n"
+            f"- أقرب دعم: \n"
+            f"- أقرب مقاومة: \n\n"
+            f"🎯 **الأهداف المستقبلية:**\n"
+            f"1️⃣ قصير المدى: \n"
+            f"2️⃣ متوسط المدى: \n"
+            f"3️⃣ بعيد المدى: \n\n"
+            f"💹 **مستويات تداول مقترحة:**\n"
+            f"- Stop Loss: \n"
+            f"- Take Profit: \n\n"
+            f"📈 **تحليل المؤشرات الفنية:**\n"
+            f"- RSI, MACD, MA\n"
+            f"- Bollinger Bands\n"
+            f"- Fibonacci Levels\n"
+            f"- Stochastic Oscillator\n"
+            f"- Volume Analysis\n"
+            f"- Trendlines باستخدام Regression\n\n"
+            f"✅ استخدم العربية فقط، لا تشرح المشروع، ركز على التحليل الفني وتوقعات الأسعار فقط."
+        )
+    else:
+        prompt = (
+            f"Current price of {sym}: ${price:.6f}\n"
+            f"Timeframe: {tf}\n\n"
+            f"📊 **Comprehensive Analysis:**\n"
+            f"- General Trend: \n"
+            f"- Nearest Support: \n"
+            f"- Nearest Resistance: \n\n"
+            f"🎯 **Future Targets:**\n"
+            f"1️⃣ Short-term: \n"
+            f"2️⃣ Medium-term: \n"
+            f"3️⃣ Long-term: \n\n"
+            f"💹 **Suggested Trading Levels:**\n"
+            f"- Stop Loss: \n"
+            f"- Take Profit: \n\n"
+            f"📈 **Technical Indicators Analysis:**\n"
+            f"- RSI, MACD, MA\n"
+            f"- Bollinger Bands\n"
+            f"- Fibonacci Levels\n"
+            f"- Stochastic Oscillator\n"
+            f"- Volume Analysis\n"
+            f"- Trendlines using Regression\n\n"
+            f"✅ Answer strictly in English, do not explain the project. Focus only on technical chart analysis."
+        )
+
+    # --- استدعاء API داخل الدالة فقط ---
     res = await ask_groq(prompt, lang=lang)
     await cb.message.answer(res)
     
@@ -541,8 +598,8 @@ async def on_startup(app):
         for uid in initial_paid_users:
             await conn.execute("INSERT INTO paid_users (user_id) VALUES ($1) ON CONFLICT DO NOTHING", uid)
     
-    asyncio.create_task(ai_opportunity_radar(pool))  # تم التعليق لإيقاف الرادار عند التشغيل
-    asyncio.create_task(daily_channel_post())
+    #asyncio.create_task(ai_opportunity_radar(pool))  # تم التعليق لإيقاف الرادار عند التشغيل
+    #asyncio.create_task(daily_channel_post())
     await bot.set_webhook(f"{WEBHOOK_URL}/")
 
 app = web.Application()
@@ -552,3 +609,4 @@ app.router.add_get("/health", lambda r: web.Response(text="ok"))
 app.on_startup.append(on_startup)
 
 if __name__ == "__main__":
+    web.run_app(app, host="0.0.0.0", port=PORT)
