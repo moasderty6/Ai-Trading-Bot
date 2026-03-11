@@ -32,7 +32,7 @@ NOWPAYMENTS_IPN_SECRET = os.getenv("NOWPAYMENTS_IPN_SECRET")
 DATABASE_URL = os.getenv("DATABASE_URL")
 ADMIN_USER_ID = 6172153716
 
-GROQ_MODEL = "meta-llama/llama-4-maverick-17b-128e-instruct"
+GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 # --- إعداد البوت ---
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -224,13 +224,18 @@ async def daily_channel_post():
 async def ask_groq(prompt, lang="ar"):
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     data = {"model": GROQ_MODEL, "messages": [{"role": "user", "content": prompt}]}
+
     try:
         async with httpx.AsyncClient(timeout=45) as client:
-            res = await client.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=data)
+            res = await client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers=headers,
+                json=data
+            )
             ans = res.json()["choices"][0]["message"]["content"]
-            if lang == "ar": return re.sub(r'[^\u0600-\u06FF0-9A-Za-z.,:%$؟! \n\-]+', '', ans)
             return ans
-    except: return "..."
+    except:
+        return "⚠️ Error generating analysis"
 
 # --- الأوامر ---
 @dp.message(Command("status"))
@@ -315,13 +320,19 @@ async def set_lang(cb: types.CallbackQuery):
 # --- التعامل مع الرموز ---
 @dp.message(F.text)
 async def handle_symbol(m: types.Message):
-    if m.text.startswith('/'): return
-    
-    uid, pool = m.from_user.id, dp['db_pool']
+    if m.text.startswith('/'):
+        return
 
-    # --- أضف هذا الجزء هنا لتسجيل تاريخ النشاط ---
+    uid = m.from_user.id
+    pool = dp['db_pool']
+
     async with pool.acquire() as conn:
-        await conn.execute("UPDATE users_info SET last_active = CURRENT_DATE WHERE user_id = $1", uid)
+        await conn.execute("""
+            INSERT INTO users_info (user_id, last_active)
+            VALUES ($1, CURRENT_DATE)
+            ON CONFLICT (user_id)
+            DO UPDATE SET last_active = CURRENT_DATE
+        """, uid)
     # --------------------------------------------
 
     user = await pool.fetchrow("SELECT lang FROM users_info WHERE user_id = $1", uid)
@@ -380,9 +391,6 @@ async def handle_symbol(m: types.Message):
             else f"❌ Symbol `{sym}` is invalid. Please check the ticker (e.g., BTC, ETH)."
         )
         await status_msg.edit_text(error_text, parse_mode=ParseMode.MARKDOWN)
-
-
-
 @dp.callback_query(F.data.startswith("tf_"))
 async def run_analysis(cb: types.CallbackQuery):
     uid, pool = cb.from_user.id, dp['db_pool']
@@ -409,56 +417,76 @@ async def run_analysis(cb: types.CallbackQuery):
     # --- برومبت التحليل منسق ---
     if lang == "ar":
         prompt = (
-            f"سعر العملة {sym} الحالي: {price:.6f}$\n"
-            f"الإطار الزمني للتحليل: {tf}\n\n"
-            f"📊 **تحليل شامل:**\n"
-            f"- الاتجاه العام: \n"
-            f"- أقرب دعم: \n"
-            f"- أقرب مقاومة: \n\n"
-            f"🎯 **الأهداف المستقبلية:**\n"
-            f"1️⃣ قصير المدى: \n"
-            f"2️⃣ متوسط المدى: \n"
-            f"3️⃣ بعيد المدى: \n\n"
-            f"💹 **مستويات تداول مقترحة:**\n"
-            f"- Stop Loss: \n"
-            f"- Take Profit: \n\n"
-            f"📈 **تحليل المؤشرات الفنية:**\n"
-            f"- RSI, MACD, MA\n"
-            f"- Bollinger Bands\n"
-            f"- Fibonacci Levels\n"
-            f"- Stochastic Oscillator\n"
-            f"- Volume Analysis\n"
-            f"- Trendlines باستخدام Regression\n\n"
-            f"✅ استخدم العربية فقط، لا تشرح المشروع، ركز على التحليل الفني وتوقعات الأسعار فقط."
+            f"""قم بتحليل عملة {sym}
+
+السعر الحالي: {price:.6f}$
+الإطار الزمني: {tf}
+
+اكتب التحليل بنفس التنسيق التالي تمامًا باستخدام HTML.
+- لا تستخدم أي لغة أخرى غير العربية.
+- لا تضف أي نصوص او رموز عشوائية ولا حرف غير العربية.
+- ركز على التحليل الفني فقط، احترافي وقصير.
+
+📊 <b>التحليل العام</b>
+الاتجاه: (صاعد / هابط)
+
+📉 <b>الدعم والمقاومة</b>
+الدعم الأقرب:
+المقاومة الأقرب:
+
+🎯 <b>الأهداف السعرية</b>
+TP1:
+TP2:
+TP3:
+
+🛑 <b>وقف الخسارة</b>
+Stop Loss:
+
+📈 <b>تحليل المؤشرات</b>
+RSI: اكتب سطر واحد النسبة وتوضيح بالعربي فقططط ولا حرف غير لعربي
+MACD: اكتب سطر واحد توضيح بالعربي فقططط ولا حرف غير لعربي
+Bollinger Bands: اكتب سطر واحد توضيح بالعربي فقططط ولا حرف غير لعربي
+Volume: اكتب سطر واحد توضيح بالعربي فقططط ولا حرف غير لعربي
+"""
         )
     else:
         prompt = (
-            f"Current price of {sym}: ${price:.6f}\n"
-            f"Timeframe: {tf}\n\n"
-            f"📊 **Comprehensive Analysis:**\n"
-            f"- General Trend: \n"
-            f"- Nearest Support: \n"
-            f"- Nearest Resistance: \n\n"
-            f"🎯 **Future Targets:**\n"
-            f"1️⃣ Short-term: \n"
-            f"2️⃣ Medium-term: \n"
-            f"3️⃣ Long-term: \n\n"
-            f"💹 **Suggested Trading Levels:**\n"
-            f"- Stop Loss: \n"
-            f"- Take Profit: \n\n"
-            f"📈 **Technical Indicators Analysis:**\n"
-            f"- RSI, MACD, MA\n"
-            f"- Bollinger Bands\n"
-            f"- Fibonacci Levels\n"
-            f"- Stochastic Oscillator\n"
-            f"- Volume Analysis\n"
-            f"- Trendlines using Regression\n\n"
-            f"✅ Answer strictly in English, do not explain the project. Focus only on technical chart analysis."
+            f"""Analyze {sym}
+
+Current price: ${price:.6f}
+Timeframe: {tf}
+
+Write the analysis EXACTLY in this HTML format.
+- Use English only.
+- Do not include any random text or other languages.
+- Focus only on technical analysis, short and professional.
+
+📊 <b>Market Overview</b>
+Trend: (Bullish / Bearish)
+
+📉 <b>Support & Resistance</b>
+Nearest Support:
+Nearest Resistance:
+
+🎯 <b>Price Targets</b>
+TP1:
+TP2:
+TP3:
+
+🛑 <b>Stop Loss</b>
+Stop Loss:
+
+📈 <b>Indicator Analysis</b>
+RSI: (Bullish / Bearish) — write one short line explaining momentum
+MACD: (Bullish / Bearish) — write one short line explaining current trend
+Bollinger Bands: (Bullish / Bearish / Neutral) — write one short line explaining price vs moving average
+Volume: (Weak / Medium) — write one short line explaining trading activity
+"""
         )
 
     # --- استدعاء API داخل الدالة فقط ---
     res = await ask_groq(prompt, lang=lang)
-    await cb.message.answer(res)
+    await cb.message.answer(res, parse_mode=ParseMode.HTML)
     
     if not (await is_user_paid(pool, uid)):
         async with pool.acquire() as conn:
@@ -598,8 +626,8 @@ async def on_startup(app):
         for uid in initial_paid_users:
             await conn.execute("INSERT INTO paid_users (user_id) VALUES ($1) ON CONFLICT DO NOTHING", uid)
     
-    #asyncio.create_task(ai_opportunity_radar(pool))  # تم التعليق لإيقاف الرادار عند التشغيل
-    #asyncio.create_task(daily_channel_post())
+    asyncio.create_task(ai_opportunity_radar(pool))  # تم التعليق لإيقاف الرادار عند التشغيل
+    asyncio.create_task(daily_channel_post())
     await bot.set_webhook(f"{WEBHOOK_URL}/")
 
 app = web.Application()
