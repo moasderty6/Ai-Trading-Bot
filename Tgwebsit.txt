@@ -9,7 +9,7 @@
     <b:if cond='data:blog.url == data:blog.homepageUrl'>
         <title>Tg Crypto Bot | بوت تحليل العملات الرقمية</title>
         
-        <meta content='Tg Crypto Bot | هو البوت الأقوى لتحليل العملات الرقمية وتتبع الحيتان باستخدام الذكاء الاصطناعي|The most powerful AI-based crypto analysis and whale tracking bot.' name='description'/>
+        <meta content='البوت الأقوى لتحليل العملات الرقمية وتتبع الحيتان باستخدام الذكاء الاصطناعي | The most powerful AI-based crypto analysis and whale tracking bot.' name='description'/>
     <b:else/>
         <b:if cond='data:blog.pageType == &quot;error_page&quot;'>
             <title>404: الصفحة غير موجودة | Tg Crypto Bot</title>
@@ -36,7 +36,7 @@
     &quot;@context&quot;: &quot;https://schema.org&quot;,
     &quot;@type&quot;: &quot;WebSite&quot;,
     &quot;name&quot;: &quot;Tg Crypto Bot&quot;,
-    &quot;alternateName&quot;: &quot;بوت تحليل العملات&quot;,
+    &quot;alternateName&quot;: &quot;بوت تحليل العملات الرقمية&quot;,
     &quot;url&quot;: &quot;https://www.tgcryptobot.com/&quot;
   },
   {
@@ -45,7 +45,7 @@
     &quot;name&quot;: &quot;Tg Crypto Bot&quot;,
     &quot;operatingSystem&quot;: &quot;Web, Telegram, iOS, Android&quot;,
     &quot;applicationCategory&quot;: &quot;FinanceApplication&quot;,
-    &quot;description&quot;: &quot;نظام الذكاء الاصطناعي الأقوى لتتبع سيولة الحيتان وتحليل العملات الرقمية لحظيا&#1611;.&quot;,
+    &quot;description&quot;: &quot;نظام الذكاء الاصطناعي الأقوى لتتبع سيولة الحيتان وتحليل العملات الرقمية لحظيا&#1611;&#1611;.&quot;,
     &quot;aggregateRating&quot;: {
       &quot;@type&quot;: &quot;AggregateRating&quot;,
       &quot;ratingValue&quot;: &quot;4.9&quot;,
@@ -315,6 +315,14 @@ p[lang-role=&quot;ar&quot;],
 summary[lang-role=&quot;ar&quot;] {
     font-family: &#39;Cairo&#39;, sans-serif !important;
 }
+/* استهداف أي نص إنجليزي موجود داخل عناصر عربية */
+[lang-role=&quot;ar&quot;] span[lang-role=&quot;en&quot;], 
+.en-text {
+    font-family: &#39;Orbitron&#39;, sans-serif !important;
+    display: inline-block !important; /* لضمان عدم اختفائه إذا كان هناك كود يخفي الـ en */
+    direction: ltr !important;
+    margin: 0 5px; /* مسافة بسيطة بينه وبين العربي */
+}
    </style>
 </head>
 <body id='bodyNode'>
@@ -325,14 +333,10 @@ summary[lang-role=&quot;ar&quot;] {
 <div class='nav-links'>
     <a href='/' lang-role='ar'>الرئيسية</a>
     <a href='/' lang-role='en'>Home</a>
-
     <a href='https://www.tgcryptobot.com/p/about-us.html' lang-role='ar'>من نحن</a>
     <a href='https://www.tgcryptobot.com/p/about-us.html' lang-role='en'>About</a>
-
     <a href='https://www.tgcryptobot.com/p/contact-us.html' lang-role='ar'>اتصل بنا</a>
     <a href='https://www.tgcryptobot.com/p/contact-us.html' lang-role='en'>Contact</a>
-
-    <!-- إضافة Docs -->
     <a href='https://www.tgcryptobot.com/p/95.html' lang-role='ar'>التوثيق</a>
     <a href='https://www.tgcryptobot.com/p/95.html' lang-role='en'>Docs</a>
    <a href='https://www.tgcryptobot.com/p/legal.html' lang-role='ar'>قانوني</a>
@@ -341,9 +345,12 @@ summary[lang-role=&quot;ar&quot;] {
         </nav>
         <b:if cond='data:blog.url == data:blog.homepageUrl'>
                         <section class='hero'>
-                <h1 style='display:none;'>Tg Crypto Bot | بوت تحليل العملات الرقمية  - Crypto Analyzer Bot</h1>
-                <h2 class='section-title' lang-role='ar' style='font-size: clamp(1.8rem, 8vw, 3.8rem); margin-bottom: 15px; color: #fff; text-shadow: 0 0 25px var(--primary);'>Tg Crypto Bot | بوت تحليل العملات</h2>
-                <h2 class='section-title' lang-role='en' style='font-size: clamp(1.8rem, 8vw, 3.8rem); margin-bottom: 15px; color: #fff; text-shadow: 0 0 25px var(--primary);'>Tg Crypto Bot | Crypto Analyzer Bot</h2>
+                <h1 style='display:none;'>Tg Crypto Bot | بوت تحليل العملات الرقمية | Crypto Analyzer Bot</h1>
+                <h2 class='section-title' lang-role='ar' style='font-size: clamp(1.8rem, 8vw, 3.8rem); margin-bottom: 30px; color: #fff; text-shadow: 0 0 25px var(--primary);'>
+    <span lang-role='en'>Tg Crypto Bot</span> | بوت تحليل العملات
+</h2>
+
+                <h2 class='section-title' lang-role='en' style='font-size: clamp(1.8rem, 8vw, 3.8rem); margin-bottom: 20px; color: #fff; text-shadow: 0 0 25px var(--primary);'>Tg Crypto Bot | Crypto Analyzer Bot</h2>
                 <p class='hero-desc' lang-role='ar'>الذكاء الاصطناعي الأقوى لتحليل الاتجاه وصيد الحيتان 🐋</p>
                 <p class='hero-desc' lang-role='en'>The Strongest AI for Trend Analysis &amp; Whale Hunting 🐋</p>
                 <div class='counters-container'>
