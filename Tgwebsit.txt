@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE html>
-<html b:css='false' b:defaultwidgetcss='false' b:layouts='false' dir='rtl' id='htmlRoot' lang='ar' xmlns='http://www.w3.org/1999/xhtml' xmlns:b='http://www.google.com/2005/gml/b' xmlns:data='http://www.google.com/2005/gml/data' xmlns:expr='http://www.google.com/2005/gml/expr'>
+<html b:css='false' b:defaultwidgetcss='false' b:js='false' b:layouts='false' dir='rtl' id='htmlRoot' lang='ar' xmlns='http://www.w3.org/1999/xhtml' xmlns:b='http://www.google.com/2005/gml/b' xmlns:data='http://www.google.com/2005/gml/data' xmlns:expr='http://www.google.com/2005/gml/expr'>
 
 <head>
     <link href='https://www.tgcryptobot.com/' rel='canonical'/>
@@ -125,7 +125,7 @@ footer {
     margin-bottom: 0 !important;
 }
     ]]></b:skin>
-    <style>
+<style>
         :root {
             --primary: #00d2ff;
             --secondary: #39ff14;
@@ -324,20 +324,71 @@ summary[lang-role=&quot;ar&quot;] {
     direction: ltr !important;
     margin: 0 5px; /* مسافة بسيطة بينه وبين العربي */
 }
-      .bot-logo-container {
+.bot-logo-container {
     display: flex;
     justify-content: center;
     align-items: center;
     width: 100%;
+    margin-top: -20px;
     margin-bottom: 10px;
-    margin-top: -30px; /* سحب العناصر للأعلى */
+    min-height: 85px; /* يمنع القفزة في الموبايل */
+}
+
+.coin-wrapper {
+    position: relative;
+    width: 80px;  /* تصغير الحجم */
+    height: 80px;
+    overflow: hidden; /* ضروري جدا&#1611; لظهور المسح داخل حدود اللوجو فقط */
+    border-radius: 50%; /* يجعل التأثير دائريا&#1611; مثل العملة */
+    display: flex;
+    justify-content: center;
+    align-items: center;
 }
 
 .bot-logo-gif {
-    max-width: 90px; /* تصغير الشعار (كان 150) */
-    height: auto;
-    filter: none; /* إزالة الوهج */
-    transition: transform 0.3s ease;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    z-index: 1;
+    /* نبض خفيف جدا&#1611; للحجم */
+    animation: gentle-scale 3s infinite ease-in-out;
+}
+
+/* تأثير المسح الضوئي (اللمعة) */
+.coin-wrapper::after {
+    content: &quot;&quot;;
+    position: absolute;
+    top: 0;
+    left: -200%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+        90deg, 
+        rgba(255, 255, 255, 0) 0%, 
+        rgba(255, 255, 255, 0.6) 50%, 
+        rgba(255, 255, 255, 0) 100%
+    );
+    transform: skewX(-25deg); /* إمالة اللمعة لتبدو احترافية */
+    z-index: 2; /* لتكون فوق الصورة */
+    animation: metallic-shine 4s infinite;
+}
+
+/* حركة اللمعة */
+@keyframes metallic-shine {
+    0% { left: -200%; }
+    30% { left: 200%; } /* سرعة مرور اللمعة */
+    100% { left: 200%; } /* انتظار قبل اللمعة القادمة */
+}
+
+@keyframes gentle-scale {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+}
+
+/* للموبايل: تصغير إضافي إذا كانت الشاشة صغيرة جدا&#1611; */
+@media (max-width: 480px) {
+    .coin-wrapper { width: 100px; height: 100px; }
+    .bot-logo-container { min-height: 105px; }
 }
 
 /* توسيع حاوية العنوان لضمان عدم انقسام السطر */
@@ -372,7 +423,9 @@ summary[lang-role=&quot;ar&quot;] {
         <b:if cond='data:blog.url == data:blog.homepageUrl'>
                         <section class='hero'>
                           <div class='bot-logo-container'>
-    <img alt='Logo' class='bot-logo-gif' src='https://i.postimg.cc/wBPYrx72/IMG-7379.png'/>
+    <div class='coin-wrapper'>
+        <img alt='Logo' class='bot-logo-gif' height='80' src='https://i.postimg.cc/B6dn9cwW/IMG-7384.png' width='80'/>
+    </div>
 </div>
                 <h1 style='display:none;'>Tg Crypto Bot | بوت تحليل العملات الرقمية | Crypto Analyzer Bot</h1>
                 <h2 class='section-title' lang-role='ar' style='font-size: clamp(1.8rem, 8vw, 3.8rem); margin-bottom: 30px; color: #fff; text-shadow: 0 0 25px var(--primary);'>
