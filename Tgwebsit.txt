@@ -328,7 +328,7 @@ summary[lang-role=&quot;ar&quot;] {
     justify-content: center;
     align-items: center;
     width: 100%;
-    margin-top: -20px;
+    margin-top: -30px;
     margin-bottom: 10px;
     min-height: 85px; /* يمنع القفزة في الموبايل */
 }
@@ -519,6 +519,203 @@ summary[lang-role=&quot;ar&quot;] {
     text-transform: uppercase;
     text-align: center;
 }
+/* --- تنسيق قسم العدادات الأساسي (لا يتغير) --- */
+/* --- الحاوية الرئيسية --- */
+.counters-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 12px; 
+    width: 100%;
+    max-width: 550px; /* زدنا العرض الكلي للمجموعة */
+    margin: 0 auto 30px auto;
+    flex-wrap: nowrap;
+    padding: 0 5px; /* تقليل الهوامش الخارجية ليعطي مساحة أكبر للبوكسات */
+    box-sizing: border-box;
+}
+
+/* --- الكونتينر (البوكس) --- */
+.counter-pill {
+    flex: 1;
+    display: flex;
+    flex-direction: row-reverse;
+    align-items: center;
+    justify-content: center;
+    gap: 6px; /* تقليل المسافة بين الرقم والكلمة ليصغر المحتوى */
+    padding: 12px 20px; /* زدنا الـ 20px لتوسيع البوكس من الأطراف الجانبية */
+    border-radius: 10px;
+    white-space: nowrap;
+    min-width: 0;
+    position: relative;
+    
+    /* ستايل الزجاج والدخان الداخلي */
+    background: rgba(255, 255, 255, 0.02);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* --- تأثير الدخان الملون جوه البوكس --- */
+.free-pill {
+    box-shadow: 0 0 15px rgba(86, 204, 242, 0.1), 
+                0 0 20px rgba(86, 204, 242, 0.2) inset; /* دخان داخلي سماوي */
+}
+
+.vip-pill {
+    box-shadow: 0 0 15px rgba(255, 215, 0, 0.1), 
+                0 0 20px rgba(255, 215, 0, 0.2) inset; /* دخان داخلي ذهبي */
+}
+
+/* --- تصغير حجم الأرقام --- */
+.counter-pill .num {
+    font-weight: 700;
+    font-size: 1.1rem; /* صغرنا حجم الرقم */
+    color: #fff;
+    letter-spacing: -0.5px;
+}
+
+/* --- تصغير حجم النصوص (عضو مجاني / VIP) --- */
+.counter-pill small {
+    font-size: 0.75rem; /* صغرنا حجم الكلمة */
+    color: rgba(255, 255, 255, 0.8);
+    font-weight: 400;
+}
+
+/* للموبايل: نضمن إنه يظل شغال تمام */
+@media (max-width: 380px) {
+    .counter-pill {
+        padding: 10px 12px; /* تصغير بسيط في الشاشات الصغيرة جدا&#1611; */
+    }
+    .counter-pill .num { font-size: 0.95rem; }
+    .counter-pill small { font-size: 0.65rem; }
+}
+/* الحاوية الكبيرة - ملتصقة وبدون مسافات خارجية */
+.glass-main-card {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    padding: 10px 0;
+    width: 100%;
+    /* التعديل هنا */
+    margin: 0 0 30px 0; /* زدنا الرقم الثالث (30px) لزيادة المسافة من الأسفل */
+    box-shadow: inset 0 0 15px rgba(255,255,255,0.05);
+}
+
+/* العنوان - شلنا المسافات فوقه وتحته */
+.results-heading {
+    color: #fff;
+    text-align: center;
+    font-size: 1rem;
+    margin: 0 0 10px 0; /* ملتصق بالأعلى */
+    font-weight: 700;
+    white-space: nowrap; /* يمنع انكسار النص */
+    padding: 0 10px;    /* مسافة أمان جانبية */
+}
+
+/* السكرول - مرصوص */
+.horizontal-scroll-box {
+    display: flex;
+    gap: 8px; /* تقليل المسافة بين الكروت */
+    overflow-x: auto;
+    padding: 0 10px;
+    scrollbar-width: none;
+}
+.horizontal-scroll-box::-webkit-scrollbar { display: none; }
+
+/* الكرت المربع تماما&#1611; */
+.crypto-square-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    min-width: 110px; /* تصغير العرض ليكون مربعا&#1611; */
+    height: 110px;    /* الطول يساوي العرض */
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    box-shadow: inset 0 0 15px rgba(255,255,255,0.05); /* الدخان الجليدي */
+}
+
+/* الهيدر داخل الكرت */
+.card-header { display: flex; align-items: center; gap: 5px; }
+.coin-logo { width: 18px; height: 18px; border-radius: 50%; background: #444; }
+.symbol { color: #fff; font-size: 0.75rem; font-weight: 700; }
+
+/* الشارت مرصوص */
+.chart-area { height: 30px; }
+.chart-area svg { width: 100%; height: 100%; }
+
+/* الفوتر */
+.card-footer { text-align: right; }
+.profit-green { color: #00ff88; font-weight: 800; font-size: 0.85rem; }
+
+.btn-action {
+    position: relative;
+    padding: 15px 45px;
+    font-size: 1.1rem;
+    font-weight: 900;
+    text-decoration: none;
+    color: #ffffff !important;
+    /* زيادة قوة اللون الأزرق السماوي في الخلفية */
+    background: radial-gradient(circle at center, rgba(0, 210, 255, 0.4) 0%, rgba(0, 80, 100, 0.1) 70%, rgba(255, 255, 255, 0.05) 100%) !important;
+    background-size: 180% 180% !important;
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+    border: 1px solid rgba(0, 210, 255, 0.3) !important; /* حدود زرقاء شفافة */
+    border-radius: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    overflow: hidden;
+    transition: all 0.4s ease;
+    /* وهج خارجي أزرق خفيف */
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4), 0 0 15px rgba(0, 210, 255, 0.1);
+    animation: bounce 2s infinite, movingSmoke 3s ease-in-out infinite;
+}
+
+.btn-action span {
+    position: relative;
+    z-index: 5;
+    /* توهج للنص باللون الأزرق */
+    text-shadow: 0 0 12px rgba(0, 210, 255, 1);
+    letter-spacing: 1px;
+}
+
+/* إضافة لمعة برقية تمر فوق الدخان */
+.btn-action::before {
+    content: &#39;&#39;;
+    position: absolute;
+    top: 0; left: -100%; width: 100%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+    transition: 0.5s;
+    z-index: 2;
+}
+
+.btn-action:hover::before {
+    left: 100%;
+    transition: 0.6s;
+}
+
+.btn-action:hover {
+    border-color: rgba(0, 210, 255, 0.8) !important;
+    box-shadow: 0 0 30px rgba(0, 210, 255, 0.5); /* زيادة الوهج عند التحويم */
+    transform: scale(1.05) translateY(-2px);
+}
+
+/* حركة تموج الدخان الأزرق السماوي */
+@keyframes movingSmoke {
+    0% { background-position: 50% 0%; }
+    50% { background-position: 50% 100%; }
+    100% { background-position: 50% 0%; }
+}
+
+@keyframes bounce { 
+    0%, 100% { transform: scale(1); } 
+    50% { transform: scale(1.03); } 
+}
+
   </style>
 <link as='style' href='https://www.blogger.com/static/v1/widgets/649214430-widget_css_bundle_rtl.css' rel='preload'/>
 <link href='https://www.blogger.com/static/v1/widgets/649214430-widget_css_bundle_rtl.css' media='print' onload='this.media=&quot;all&quot;' rel='stylesheet'/>
@@ -561,28 +758,88 @@ summary[lang-role=&quot;ar&quot;] {
                 <p class='hero-desc' lang-role='ar'>الذكاء الاصطناعي الأقوى لتحليل الاتجاه وصيد الحيتان 🐋</p>
                 <p class='hero-desc' lang-role='en'>The Strongest AI for Trend Analysis &amp; Whale Hunting 🐋</p>
                 <div class='counters-container'>
-    <div class='counter-pill' style='display: flex; align-items: center; justify-content: center; white-space: nowrap; gap: 8px;'>
-        <span class='num' id='totalUsers'>60477</span>
-        <small lang-role='ar'>عضو مجاني</small><small lang-role='en'>FREE Members</small>
+    <div class='counter-pill free-pill'>
+        <span class='num' id='totalUsers'>60,477</span>
+        <small lang-role='ar'>عضو مجاني</small>
+        <small lang-role='en'>FREE Members</small>
     </div>
-    <div class='counter-pill vip' style='display: flex; align-items: center; justify-content: center; white-space: nowrap; gap: 8px;'>
-        <span class='num' id='vipUsers'>7328</span>
-        <small lang-role='ar'>عضو VIP</small><small lang-role='en'>VIP Members</small>
+    
+    <div class='counter-pill vip-pill'>
+        <span class='num' id='vipUsers'>7,328</span>
+        <small lang-role='ar'>عضو VIP</small>
+        <small lang-role='en'>VIP Members</small>
     </div>
-                </div>
-                                                <a class='btn-action' href='https://t.me/AiCryptoGPTbot'>
+</div>
+<div class='glass-main-card' onclick='openGallery()' style='cursor: pointer;'>
+    <h3 class='results-heading'>
+        <span lang-role='ar'>نتائج تحليل البوت الأحدث &#10140;</span>
+        <span lang-role='en'>Latest Bot Analysis Results &#10140;</span>
+    </h3>
+                      
+    <div class='horizontal-scroll-box'>
+        
+        <div class='crypto-square-card btc-ice'>
+            <div class='card-header'>
+                <img alt='BTC' class='coin-logo' src='https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhOngJAv3TwQrGCJr0DAoeNvnOnRIGQUfQlZvDemxyGQM2McJa9x8BslhIaAG2OjZRgkfLVBOK5aEwfq5lborLXoQCD_UYjI8XPnBpU_LaHF0qH_sDWzyhXeS7ElSjS59hZgo7xTM5KFZnLZGHPMsJYH-nPE8aoHBEWAt2oZ8ItcBGb02FZ6h7avvU1m50/s2000/IMG_7505.png'/>
+                <span class='symbol'>BTC/USDT</span>
+            </div>
+            <div class='chart-area'>
+                <svg viewBox='0 0 100 40'><path d='M0 35 Q 25 35, 45 15 T 100 5' fill='none' stroke='#00ff88' stroke-linecap='round' stroke-width='2.5'/></svg>
+            </div>
+            <div class='card-footer'>
+                <span class='profit-green'>+10.2%</span>
+            </div>
+        </div>
+
+        <div class='crypto-square-card eth-ice'>
+            <div class='card-header'>
+                <img alt='ZRO' class='coin-logo' src='https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhCjzlSZqCb3l08lBtDqBY-8IKDUqPBMLa6wBfrKCYJiykgV-P7A8MH5CZ5srPNiVCUZU2bPGUbZmCYhQhIxtDlGO7tz9-FG_Hvvxga2dOv9WloZwYPLsyjLkIITUFlGa1i2cVFnC9z6MQhOrVkMVTBWzyGShPUCQy-mM4rT2WuTgCjt4nBzdo6NpYG_fo/s200/IMG_7504.png'/>
+                <span class='symbol'>ZRO/USDT</span>
+            </div>
+            <div class='chart-area'>
+                <svg viewBox='0 0 100 40'><path d='M0 25 Q 50 20, 100 25' fill='none' stroke='#00ff88' stroke-linecap='round' stroke-width='2.5'/></svg>
+            </div>
+            <div class='card-footer'>
+                <span class='profit-green'>+12.1%</span>
+            </div>
+        </div>
+
+        <div class='crypto-square-card fet-ice'>
+            <div class='card-header'>
+                <img alt='FET' class='coin-logo' src='https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhUscSGzzZtFPcJApGfG8ATmuVInPHxmkYLi7kprmfQ1pH0qaLrtdyWX9-Eib2NQ1cW7mzjT0yd19R5cTsH_Xg2QQD3dgQxw9cST5ICTfh5zll8QZvJSaUuOPFa9mV5Pp6tM23QApLuSCDi9rAq0u6X4S-7xfkEjWmZZzsZYdE6fi1mUfrapkLoK87iS98/s2500/IMG_7503.png'/>
+                <span class='symbol'>FET/USDT</span>
+            </div>
+            <div class='chart-area'>
+                <svg viewBox='0 0 100 40'><path d='M0 38 L 30 30 L 60 10 L 100 2' fill='none' stroke='#00ff88' stroke-linecap='round' stroke-width='2.5'/></svg>
+            </div>
+            <div class='card-footer'>
+                <span class='profit-green'>+60%</span>
+            </div>
+        </div>
+
+        <div class='crypto-square-card tao-ice'>
+            <div class='card-header'>
+                <img alt='TAO' class='coin-logo' src='https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEi6YR4UsxT7v1Jw-_7XKhJubrlMGZYcodyXP_Uhyphenhyphenv-zHlIcIKMurEdPruEfCyRGQ4jUTEhOp8XV9MDfivYhNlcWlcniwzqUYM03kZwqbPjd0V6EbfrmwiJ196p5TQwJHuGuSNrux_6tm66Gz1k08dRkXVmV__UsO76khhfze08EV3pq_-jWJhwJEoeLnUs/s440/IMG_7502.png'/>
+                <span class='symbol'>TAO/USDT</span>
+            </div>
+            <div class='chart-area'>
+                <svg viewBox='0 0 100 40'><path d='M0 35 L 40 35 L 70 15 L 100 5' fill='none' stroke='#00ff88' stroke-linecap='round' stroke-width='2.5'/></svg>
+            </div>
+            <div class='card-footer'>
+                <span class='profit-green'>+40%</span>
+            </div>
+        </div>
+
+    </div>
+</div>
+  
+
+                          <a class='btn-action' href='https://t.me/AiCryptoGPTbot'>
                     <span lang-role='ar'>دخول البوت الآن 🚀</span>
                     <span lang-role='en'>Enter Bot Now 🚀</span>
                 </a>              
             </section>
               <section id='trade-results' style='margin: 0; padding: 0; text-align: center; line-height: 0;'>
-
-    <div class='results-trigger' onclick='openGallery()'>
-        <span class='results-arrow'>&#10140;</span>
-        <span lang-role='ar'>نتائج البوت</span>
-        <span lang-role='en'>Bot Results</span>
-    </div>
-
     <div class='gallery-overlay' id='galleryPopup' style='display:none; line-height: normal;'>
         <span class='close-gallery' onclick='closeGallery()'>&#215;</span>
         
