@@ -191,7 +191,6 @@ footer {
         .counters-container {
             display: flex; gap: 15px; flex-wrap: wrap; justify-content: center; margin-bottom: 30px;
         }
-
         .counter-pill {
             background: rgba(255,255,255,0.05);
             border: 2px solid var(--primary);
@@ -398,7 +397,129 @@ summary[lang-role=&quot;ar&quot;] {
     white-space: nowrap; /* منع انقسام النص تلقائيا&#1611; */
     overflow: visible;
 }
-   </style>
+  /* --- تعديل الزر ليكون أبيض شفاف مع وهج --- */
+.results-trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    
+    /* أبيض شفاف مع تأثير ضبابي للخلفية */
+    background: rgba(255, 255, 255, 0.08) !important; 
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    
+    /* حدود ناعمة بلون أبيض شفاف جدا&#1611; */
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    
+    /* تكبير الحجم قليلا&#1611; */
+    padding: 10px 25px !important;
+    border-radius: 4px !important;
+    
+    /* وهج أبيض خفيف حول المستطيل */
+    box-shadow: 0 0 20px rgba(255, 255, 255, 0.05), inset 0 0 10px rgba(255, 255, 255, 0.02);
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* تعديل النص والسهم ليكون باللون الأزرق */
+.results-trigger span, 
+.results-arrow {
+    color: #00d2ff !important; /* اللون الأزرق السماوي */
+    font-family: &#39;Orbitron&#39;, sans-serif;
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    text-shadow: 0 0 8px rgba(0, 210, 255, 0.4); /* وهج أزرق خفيف للنص */
+}
+
+/* تأثير عند تمرير الماوس (زيادة الوهج والشفافية) */
+.results-trigger:hover {
+    background: rgba(255, 255, 255, 0.15) !important;
+    border-color: rgba(255, 255, 255, 0.4) !important;
+    box-shadow: 0 0 25px rgba(255, 255, 255, 0.2);
+    transform: translateY(-2px);
+}
+
+.results-trigger:hover span,
+.results-trigger:hover .results-arrow {
+    color: #ffffff !important; /* يتحول للأبيض عند التحويم ليعطي تأثير &quot;إضاءة&quot; */
+    text-shadow: 0 0 12px #00d2ff;
+}
+
+/* لضمان اختفاء اللغات المتداخلة */
+[lang=&#39;ar&#39;] .results-trigger [lang-role=&#39;en&#39;],
+[lang=&#39;en&#39;] .results-trigger [lang-role=&#39;ar&#39;] {
+    display: !important;
+}
+
+.results-trigger:hover {
+    background: #00d2ff;
+    box-shadow: 0 0 15px rgba(0, 210, 255, 0.5);
+}
+
+.results-trigger:hover span, 
+.results-trigger:hover .results-arrow {
+    color: #000;
+}
+
+/* --- ستايل المعرض السينمائي --- */
+.gallery-overlay {
+    display: none;
+    position: fixed;
+    z-index: 10000;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.98);
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    backdrop-filter: blur(10px);
+}
+
+.gallery-wrapper {
+    position: relative;
+    width: 95%;
+    max-width: 1100px;
+}
+
+.gallery-container {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    gap: 15px;
+    padding: 10px 0;
+    scrollbar-width: none;
+}
+
+.gallery-container::-webkit-scrollbar { display: none; }
+
+.gallery-container img {
+    width: 100%;
+    flex-shrink: 0;
+    scroll-snap-align: center;
+    border: 2px solid #00d2ff;
+    border-radius: 12px;
+    box-shadow: 0 0 30px rgba(0, 210, 255, 0.3);
+    object-fit: contain;
+}
+
+.close-gallery {
+    position: fixed;
+    top: 20px; right: 25px;
+    color: #fff; font-size: 45px;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.gallery-nav-hint {
+    color: #00d2ff;
+    margin-top: 15px;
+    font-size: 12px;
+    text-transform: uppercase;
+    text-align: center;
+}
+  </style>
 <link as='style' href='https://www.blogger.com/static/v1/widgets/649214430-widget_css_bundle_rtl.css' rel='preload'/>
 <link href='https://www.blogger.com/static/v1/widgets/649214430-widget_css_bundle_rtl.css' media='print' onload='this.media=&quot;all&quot;' rel='stylesheet'/>
 </head>
@@ -424,7 +545,7 @@ summary[lang-role=&quot;ar&quot;] {
                         <section class='hero'>
                           <div class='bot-logo-container'>
     <div class='coin-wrapper'>
-        <img alt='Logo' class='bot-logo-gif' height='80' src='https://i.postimg.cc/B6dn9cwW/IMG-7384.png' width='80'/>
+        <img alt='Logo' class='bot-logo-gif' height='80' src='https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEg-l1BLwmYEZfyUJd8c1-vq-OZXUH9tTdq3fY5OQfFhsEUEwx345mdFBuaUhZrZ3zGs7p4bW0ePbGuXevmwhlQ6JRSQwDTAGOFCq474FCqYlESmgnv4Bhn5UmUxL-Cv9nfyEcGYXCym5dhnKGREapczSnHKZsdwJpyrM87UzqF5RP317qvmIg_5LnfMduE/s600/IMG_7384.png' width='80'/>
     </div>
 </div>
                 <h1 style='display:none;'>Tg Crypto Bot | بوت تحليل العملات الرقمية | Crypto Analyzer Bot</h1>
@@ -449,15 +570,44 @@ summary[lang-role=&quot;ar&quot;] {
         <small lang-role='ar'>عضو VIP</small><small lang-role='en'>VIP Members</small>
     </div>
                 </div>
-                <a class='btn-action' href='https://t.me/AiCryptoGPTbot'>
+                                                <a class='btn-action' href='https://t.me/AiCryptoGPTbot'>
                     <span lang-role='ar'>دخول البوت الآن 🚀</span>
                     <span lang-role='en'>Enter Bot Now 🚀</span>
-                </a>
+                </a>              
             </section>
-            <section id='features'>
+              <section id='trade-results' style='margin: 0; padding: 0; text-align: center; line-height: 0;'>
+
+    <div class='results-trigger' onclick='openGallery()'>
+        <span class='results-arrow'>&#10140;</span>
+        <span lang-role='ar'>نتائج البوت</span>
+        <span lang-role='en'>Bot Results</span>
+    </div>
+
+    <div class='gallery-overlay' id='galleryPopup' style='display:none; line-height: normal;'>
+        <span class='close-gallery' onclick='closeGallery()'>&#215;</span>
+        
+        <div class='gallery-wrapper'>
+            <div class='gallery-container'>
+                <img alt='Result 1' src='https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEiAF_QXdjKfBkoXNhR_1oX0NBwEe81d8Hej8Xx63Z4tq6Ehy7jQvDo04zOGQjdi9aXntKF0uckOO9pBLVGG6BsJxUol35jiNNf8rprYRff9Todq_F1wWtrKL5AKy51jQcl6B2O4Cnn27evboqcZmP8F1i2SbSgrKDmneXFHwTqn2xVGbDZxusAx3RaIW1Q/s1344/IMG_7485.png'/>
+                <img alt='Result 2' src='https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEgmBq4zN9S2A_lbL64U15uRyWyKW-fwsHkHvYAtXItL56DOUU2Vqx82k-2qQVv7aGS5a-wXnR-DIjRnUdyvaIe2gdYYCBmVegVlx19fOqXAojLL3LCQwiOB_njzuffrUiaa-ybd7PW3JrhBQeGTQzuxr3s9hNk11SiGgdGyg5QL_JSm6vZRv-3mR98TRlY/s1344/IMG_7486.jpeg'/>
+               <img alt='Result 3' src='https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjT0KNhzfjoJq-_DPVAQKqG_eVpp-K3RtdQaTbIgYtB41OgKlSiH64MpjGeXT2Oj5g9mbJwjZ2k-KvmNwI3ZlItcgG1Gwc8zYo7MpSbSI4XNastlfWp4aunvaQvZMS-LxsqWn6kddNVGGNpkdghCSxfznWFeeDysQ8CHgNlPI6Iv6IGn20ZRE2fDmxTaiM/s1344/IMG_7487.png'/>
+                <img alt='Result 4' src='https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhGt5WWVMF-l5L7QJ2kXg3hqW5L-xkHtukRwZAX0yWy-g02kglm5bu1oQ2urv_Oi10Er2Cn5kXCZUqig4XxaXOoTeVxiQhGBrCqQmSGd2QqKZJq3vI_mN_e8s8DOU-ccx4q7nd-KJGqApIIMfISr8z2BetHXjMzDZmczPGrap5Dyt7NoHzPvS_pPu5AZDA/s1344/IMG_7488.png'/>
+                <img alt='Result 5' src='https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjYxpYpJWWo6Q_BA_F5kTFasjS8jXUeSNE8BrlpYL094VedsGl92JHXa2mN9DKF5w15cbFz-BMF1L3NPEmBcn-bEdglY_HTbsTVEqXed9w5RF0RrKTQVCXZ23LUdQf2VU-YJo5inm1Uk6UneRA3R9ck8Y0XW7OAt0wcBJG_EUPTgp261SjGWlYLMzMkqpU/s1344/IMG_7489.png'/>
+            </div>
+            
+            <div class='gallery-nav-hint'>
+                <span lang-role='ar'>اسحب لرؤية المزيد &#8656;</span>
+                <span lang-role='en'>Swipe for more &#10140;</span>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section id='features'>
                 <h2 class='section-title' lang-role='ar'>لماذا يختارنا المحترفون&#1567;</h2>
                 <h2 class='section-title' lang-role='en'>Why Professionals Choose Us?</h2>
                 <div class='grid'>
+
                     <div class='card'>
                         <h3 lang-role='ar'>💹 تحليل شامل للعملات</h3>
                         <h3 lang-role='en'>💹 Comprehensive Analysis</h3>
@@ -2222,5 +2372,26 @@ summary[lang-role=&quot;ar&quot;] {
         updateCounters();
         // ]]>
     </script>
+  <script type='text/javascript'>
+//<![CDATA[
+function openGallery() {
+    const popup = document.getElementById('galleryPopup');
+    popup.style.display = 'flex';
+    document.body.style.overflow = 'hidden'; 
+}
+
+function closeGallery() {
+    const popup = document.getElementById('galleryPopup');
+    popup.style.display = 'none';
+    document.body.style.overflow = 'auto';
+}
+
+// إغلاق عند الضغط على مفتاح الهروب
+document.addEventListener('keydown', function(e) {
+    if (e.key === "Escape") closeGallery();
+});
+//]]>
+</script>
+
 </body>
 </html>
