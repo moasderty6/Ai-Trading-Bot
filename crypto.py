@@ -93,65 +93,150 @@ async def ai_opportunity_radar(pool):
     while True:
         try:
             headers = {"X-CMC_PRO_API_KEY": CMC_KEY}
-            async with httpx.AsyncClient() as client:
-                res = await client.get("https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest", 
-                                     headers=headers, params={"limit": "50"})
-                
-                if res.status_code == 200:
-                    selected_coin = random.choice(res.json()["data"])
-                    symbol = selected_coin["symbol"]
-                    price = selected_coin["quote"]["USD"]["price"]
-                    price_display = f"{price:.8f}" if price < 1 else f"{price:,.2f}"
 
-                    # --- توليد التحليل مرة واحدة فقط لكل لغة لتوفير الـ API والوقت ---
-                    # تحليل للـ VIP (عربي وانجليزي)
-                    insight_vip_ar = await ask_groq(f"Give a very short 2-line technical breakout insight for #{symbol} at ${price_display}. Answer strictly in Arabic.", lang="ar")
-                    insight_vip_en = await ask_groq(f"Give a very short 2-line technical breakout insight for #{symbol} at ${price_display}. Answer strictly in English.", lang="en")
-                    
-                    # تلميح للمجاني (عربي وانجليزي)
-                    hint_free_ar = await ask_groq(f"Write a 1-line technical breakout hint for a coin at ${price_display}. DO NOT mention the coin name. Answer strictly in Arabic.", lang="ar")
-                    hint_free_en = await ask_groq(f"Write a 1-line technical breakout hint for a coin at ${price_display}. DO NOT mention the coin name. Answer strictly in English.", lang="en")
+            async with httpx.AsyncClient(timeout=20) as client:
+                # جلب أحدث العملات
+                res = await client.get(
+                    "https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest",
+                    headers=headers,
+                    params={"limit": "100"}
+                )
+                coins = res.json()["data"]
+                opportunities = []
 
-                    users = await pool.fetch("SELECT user_id, lang FROM users_info")
-                    
-                    for row in users:
-                        uid, lang = row['user_id'], row['lang'] or "ar"
-                        is_paid = await is_user_paid(pool, uid)
-                        
-                        if is_paid:
-                            insight = insight_vip_ar if lang == "ar" else insight_vip_en
-                            text = (f"🚨 **VIP BREAKOUT ALERT**\n\n"
-                                    f"💎 **العملة:** #{symbol.upper()}\n"
-                                    f"💵 **السعر:** `${price_display}`\n"
-                                    f"📈 **الرؤية:**\n{insight}")
+                # فلترة العملات حسب حجم التداول، السعر، والسيولة
+                for c in coins:
+                    price = c["quote"]["USD"]["price"]
+                    volume = c["quote"]["USD"]["volume_24h"]
+                    change = c["quote"]["USD"]["percent_change_24h"]
+                    marketcap = c["quote"]["USD"]["market_cap"]
+
+                    if (
+                        volume > 60_000_000 and
+                        abs(change) > 5 and
+                        marketcap > 120_000_000
+                    ):
+                        opportunities.append(c)
+
+                if not opportunities:
+                    opportunities = coins
+
+                selected = random.choice(opportunities)
+
+                symbol = selected["symbol"]
+                price = selected["quote"]["USD"]["price"]
+                volume = selected["quote"]["USD"]["volume_24h"]
+                change = selected["quote"]["USD"]["percent_change_24h"]
+
+                price_display = f"{price:.6f}" if price < 1 else f"{price:,.2f}"
+
+                # ===== حساب قوة الفرصة بشكل محسّن =====
+                change_score = min(50, abs(change) * 2.5)         # تأثير التغير السعري
+                volume_score = min(50, volume / 2_000_000)        # تأثير حجم التداول
+                score = int(change_score + volume_score)          # مجموع النقاط من 0-100
+
+                # تحديد نوع الإشارة
+                if score > 85:
+                    signal = "Whale Activity 🐋 "
+                elif score > 70:
+                    signal = "Smart Money 🚨 "
+                elif score > 60:
+                    signal = "Breakout 📈 "
+                else:
+                    signal = "Momentum 🔥 "
+
+                # تحليل AI
+                insight_ar = await ask_groq(
+                    f"اكتب سطرين قصيرين يصفان الزخم السعري وحجم التداول لعملة {symbol} بسعر {price_display}. عربي فقط.",
+                    lang="ar"
+                )
+                insight_en = await ask_groq(
+                    f"Write two short lines describing price momentum and trading activity for {symbol} at {price_display}. English only.",
+                    lang="en"
+                )
+
+                # تلميح للمجانيين (بدون كشف الاسم)
+                hint_ar = "📈 تحليل سريع: تم رصد حركة قوية محتملة في السوق قد تشير إلى فرصة قادمة."
+                hint_en = "📈 Quick Analysis: Strong market activity detected, potential opportunity ahead."
+
+                # --- مؤقتاً لإرسال الرادار لمستخدم واحد (ID الأدمن) ---
+                users = await pool.fetch("SELECT user_id, lang FROM users_info")  # ID الأدمن
+
+                for row in users:
+                    uid = row["user_id"]
+                    lang = row["lang"] or "ar"
+
+                    paid = await is_user_paid(pool, uid)
+
+                    if paid:
+                        # VIP - كامل التفاصيل
+                        if lang == "ar":
+                            text = (
+                                f"🚨 <b>رادار السوق الذكي VIP</b>\n"
+                                f"━━━━━━━━━━━━━━\n"
+                                f"💎 العملة: #{symbol}\n"
+                                f"💵 السعر الحالي: ${price_display}\n"
+                                f"⚡ نوع الإشارة: {signal}\n"
+                                f"📊 قوة الفرصة: {score}/100\n\n"
+                                f"📈 الرؤية الفنية:\n{insight_ar}\n"
+                                f"━━━━━━━━━━━━━━"
+                            )
                         else:
-                            insight = hint_free_ar if lang == "ar" else hint_free_en
-                            if lang == "ar":
-                                text = (f"📡 **رادار الفرص الذكي**\n"
-                                        f"───────────────────\n"
-                                        f"🔥 **تم رصد انفجار سعري محتمل الآن!**\n\n"
-                                        f"📊 **العملة:** `•••••` 🔒\n"
-                                        f"💰 **السعر الحالي:** `${price_display}`\n"
-                                        f"📈 **تلميح تقني:**\n_{insight}_\n\n"
-                                        f"📢 **اشترك الآن لكشف اسم العملة والأهداف!**")
-                            else:
-                                text = (f"📡 **SMART RADAR ALERT**\n"
-                                        f"───────────────────\n"
-                                        f"🔥 **Potential Breakout Detected!**\n\n"
-                                        f"📊 **Symbol:** `•••••` 🔒\n"
-                                        f"💰 **Price:** `${price_display}`\n"
-                                        f"📈 **Technical Hint:**\n_{insight}_\n\n"
-                                        f"📢 **Subscribe VIP to unlock the symbol!**")
-                        
-                        try:
-                            await bot.send_message(uid, text, reply_markup=None if is_paid else get_payment_kb(lang), parse_mode=ParseMode.MARKDOWN)
-                            await asyncio.sleep(0.05) # تأخير بسيط لتجنب حظر التليجرام (Flood limit)
-                        except Exception:
-                            continue
+                            text = (
+                                f"🚨 <b>VIP Smart Market Radar</b>\n"
+                                f"━━━━━━━━━━━━━━\n"
+                                f"💎 Coin: #{symbol}\n"
+                                f"💵 Price: ${price_display}\n"
+                                f"⚡ Signal: {signal}\n"
+                                f"📊 Opportunity Score: {score}/100\n\n"
+                                f"📈 Technical Insight:\n{insight_en}\n"
+                                f"━━━━━━━━━━━━━━"
+                            )
+                    else:
+                        # مجاني - يظهر الإشارة والتحليل بدون كشف الاسم
+                        if lang == "ar":
+                            text = (
+                                f"📡 <b>رادار الإنفجارات السعرية</b>\n"
+                                f"━━━━━━━━━━━━━━\n"
+                                f"💎 العملة: ••••• 🔒\n"
+                                f"⚡ نوع الإشارة: {signal}\n"
+                                f"💵 السعر الحالي: ${price_display}\n"
+                                f"📊 قوة الفرصة: {score}/100\n\n"
+                                f"{hint_ar}\n\n"
+                                f"اشترك VIP لكشف اسم العملة والأهداف.\n"
+                                f"━━━━━━━━━━━━━━"
+                            )
+                        else:
+                            text = (
+                                f"📡 <b>Price Explosion Radar</b>\n"
+                                f"━━━━━━━━━━━━━━\n"
+                                f"💎 Coin: ••••• 🔒\n"
+                                f"⚡ Signal: {signal}\n"
+                                f"💵 Current Price: ${price_display}\n"
+                                f"📊 Opportunity Score: {score}/100\n\n"
+                                f"{hint_en}\n\n"
+                                f"Subscribe VIP to unlock the coin and targets.\n"
+                                f"━━━━━━━━━━━━━━"
+                            )
+
+                    try:
+                        await bot.send_message(
+                            uid,
+                            text,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=None if paid else get_payment_kb(lang)
+                        )
+                        await asyncio.sleep(0.05)
+
+                    except Exception as e:
+                        print(f"Could not send radar to user {uid}: {e}")
+                        continue
+
         except Exception as e:
             print(f"Radar Error: {e}")
-            
-        await asyncio.sleep(84000) # انتطار الدورة القادمة
+
+        # الانتظار قبل الدورة القادمة (6 ساعات)
+        await asyncio.sleep(84000)  # 6 ساعات # انتطار الدورة القادمة
 async def daily_channel_post():
     # معرف القناة (تأكد من كتابة يوزر قناتك هنا)
     CHANNEL_ID = "@AiCryptoGPT" 
@@ -598,12 +683,13 @@ async def handle_webhook(req: web.Request):
 
 async def on_startup(app):
     pool = await asyncpg.create_pool(
-        DATABASE_URL,
-        min_size=1,
-        max_size=10,
-        command_timeout=60,
-        timeout=60
-    )
+    DATABASE_URL,
+    min_size=0,                   # لا اتصالات مفتوحة وقت الخمول
+    max_size=5,                   # عدد الاتصالات المتزامنة كافي للبوت المتوسط
+    command_timeout=60,
+    timeout=60,
+    max_inactive_connection_lifetime=60  # اغلاق الاتصالات الغير مستخدمة
+)
 
     app['db_pool'] = dp['db_pool'] = pool
 
