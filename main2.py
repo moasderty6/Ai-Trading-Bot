@@ -38,7 +38,7 @@ NOWPAYMENTS_IPN_SECRET = os.getenv("NOWPAYMENTS_IPN_SECRET")
 DATABASE_URL = os.getenv("DATABASE_URL")
 ADMIN_USER_ID = 6172153716
 
-GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+GROQ_MODEL = "llama-3.3-70b-versatile"
 
 # --- إعداد البوت ---
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -554,8 +554,9 @@ def compute_indicators(candles):
 
     # بيانات إضافية
     last_vol = df["volume"].iloc[-1]
-    high_price = df["high"].max()
-    low_price = df["low"].min()
+    recent = df.tail(20)
+    high_price = recent["high"].max()
+    low_price = recent["low"].min()
 
     return last_rsi, last_macd_diff, last_bb, last_vol, high_price, low_price
 
@@ -601,6 +602,13 @@ async def run_analysis(cb: types.CallbackQuery):
 البولينجر: السعر {last_bb[0]:.2f} (نطاق {last_bb[1]:.2f} - {last_bb[2]:.2f}) | الفوليوم: {last_vol:.2f}
 
 ⚠️ الالتزام التام بهذا التنسيق (استخدم وسوم HTML فقط):
+⚠️ قواعد صارمة:
+
+إذا كان الاتجاه "صاعد":
+- يجب أن تكون TP1 و TP2 و TP3 أعلى من السعر الحالي
+
+إذا كان الاتجاه "هابط":
+- يجب أن تكون TP1 و TP2 و TP3 أقل من السعر الحالي
 
 📊 <b>التحليل العام</b>
 الاتجاه: (اكتب صاعد أو هابط)
@@ -618,10 +626,10 @@ TP3: (ضع رقم منطقي)
 Stop Loss: (ضع رقم منطقي)
 
 📈 <b>تحليل المؤشرات</b>
-- RSI: {safe_rsi} (اشرح باختصار شديد جداً سطر واحد)
-- MACD: (اشرح باختصار شديد جداً سطر واحد)
+- RSI: {safe_rsi} (اكتب القيمةواشرح باختصار شديد سطر واحد)
+- MACD: {last_macd:.4f} (اكتب القيمة واشرح باختصار شديد سطر واحد)
 - Bollinger Bands: (اشرح باختصار شديد جداً سطر واحد)
-- Volume: {last_vol:.2f} (اشرح باختصار شديد جداً سطر واحد)
+- Volume: {last_vol:.2f} (اكتب القيمة واشرح باختصار شديد سطر واحد)
 
 **ملاحظة: لا تكتب مقدمات ولا جرايد، خليك محدد ومختصر ومرتب.**
 """
@@ -632,6 +640,13 @@ Price: {price:.2f}$ | Timeframe: {tf} | RSI: {safe_rsi} | MACD: {"Bullish" if (l
 Bollinger: {last_bb[0]:.2f} (Range {last_bb[1]:.2f}-{last_bb[2]:.2f}) | Volume: {last_vol:.2f}
 
 ⚠️ Strictly follow this HTML format:
+Strict rule:
+
+If Trend = Bullish
+TP targets MUST be above current price.
+
+If Trend = Bearish
+TP targets MUST be below current price.
 
 <b>📊 Market Overview</b>
 Trend: (Bullish/Bearish)
@@ -649,10 +664,10 @@ TP3: <code>(Price)</code>
 Stop Loss: <code>(Price)</code>
 
 <b>📈 Indicator Analysis</b>
-• RSI: {safe_rsi} (One short sentence)
-• MACD: (One short sentence)
+• RSI: {safe_rsi} (value and One short sentence)
+• MACD: {last_macd:.4f} (value and One short sentence)
 • Bollinger Bands: (One short sentence)
-• Volume: {last_vol:.2f} (One short sentence)
+• Volume: {last_vol:.2f} (value and One short sentence)
 
 <b>Note: No intro/outro, strictly follow the headers above.</b>
 """
