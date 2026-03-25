@@ -482,9 +482,12 @@ async def handle_symbol(m: types.Message):
                 raise ValueError("Symbol not found")
 
             price = data["data"][sym]["quote"]["USD"]["price"]
+            # 👇 جلب الفوليوم العالمي خلال 24 ساعة 👇
+            volume_24h = data["data"][sym]["quote"]["USD"]["volume_24h"] 
             
-            # تخزين البيانات في الجلسة
-            user_session_data[uid] = {"sym": sym, "price": price, "lang": lang}
+            # 👇 إضافة الفوليوم للجلسة 👇
+            user_session_data[uid] = {"sym": sym, "price": price, "volume_24h": volume_24h, "lang": lang}
+
             
             # 3. تحديث رسالة الانتظار بالخيارات الجديدة في حال النجاح
             kb = InlineKeyboardMarkup(inline_keyboard=[[
@@ -584,11 +587,16 @@ def compute_indicators(candles):
 async def run_analysis(cb: types.CallbackQuery):
     uid, pool = cb.from_user.id, dp['db_pool']
     data = user_session_data.get(uid)
+    
     if not data:
-        return
+        return await cb.answer("⚠️ انتهت الجلسة، يرجى إرسال الرمز من جديد.", show_alert=True)
 
-    lang, sym, price, tf = data['lang'], data['sym'], data['price'], cb.data.replace("tf_", "")
-
+    # 👇 تم إصلاح المسافات واستخدام get للحماية من الأعطال 👇
+    lang = data.get('lang', 'ar')
+    sym = data.get('sym')
+    price = data.get('price')
+    volume_24h = data.get('volume_24h', 0)
+    tf = cb.data.replace("tf_", "")
     # --- تحقق من الاشتراك / التجربة ---
     if not (await is_user_paid(pool, uid)) and not (await has_trial(pool, uid)):
         return await cb.message.edit_text(
@@ -616,6 +624,7 @@ async def run_analysis(cb: types.CallbackQuery):
     bb2_fmt = format_price(last_bb[2])
     macd_fmt = format_price(last_macd) if last_macd is not None else "0.0"
     safe_rsi = f"{last_rsi:.2f}" if last_rsi is not None else "N/A"
+    vol24_fmt = format_price(volume_24h)
 
     # --- صياغة البرومبت (نفس أسلوبك بالضبط) ---
     # ملاحظة: أضفت صمام أمان للـ RSI والماكد لضمان عدم ظهور خطأ f-string
@@ -626,7 +635,7 @@ async def run_analysis(cb: types.CallbackQuery):
         prompt = f"""
 أنت محلل فني خبير في شركة "NaiF CHarT". حلل عملة {clean_sym} بناءً على البيانات التالية:
 السعر الحالي: {price_fmt}$ | الإطار: {tf} | RSI: {safe_rsi} | MACD: {"صاعد" if (last_macd or 0)>0 else "هابط"}
-البولينجر: السعر {bb0_fmt} (نطاق {bb1_fmt} - {bb2_fmt}) | الفوليوم: {last_vol:.2f}
+البولينجر: السعر {bb0_fmt} (نطاق {bb1_fmt} - {bb2_fmt}) | الفوليوم: {vol24_fmt}
 
 ⚠️ الالتزام التام بهذا التنسيق (استخدم وسوم HTML فقط):
 ⚠️ قواعد صارمة:
@@ -656,7 +665,7 @@ Stop Loss: (ضع رقم منطقي)
 - RSI: {safe_rsi} (اكتب القيمةواشرح باختصار شديد سطر واحد)
 - MACD: {macd_fmt} (اكتب القيمة واشرح باختصار شديد سطر واحد)
 - Bollinger Bands: (اشرح باختصار شديد سطر واحد)
-- Volume: {last_vol:.2f} (اكتب القيمة واشرح باختصار شديد سطر واحد)
+- Volume: {vol24_fmt} (اكتب القيمة واشرح باختصار شديد سطر واحد)
 
 **ملاحظة: لا تكتب مقدمات ولا جرايد، خليك محدد ومختصر ومرتب.**
 """
@@ -664,7 +673,7 @@ Stop Loss: (ضع رقم منطقي)
         prompt = f"""
 You are an expert Technical Analyst at "NaiF CHarT". Analyze {clean_sym} based on:
 Price: {price_fmt}$ | Timeframe: {tf} | RSI: {safe_rsi} | MACD: {"Bullish" if (last_macd or 0)>0 else "Bearish"}
-Bollinger: {bb0_fmt} (Range {bb1_fmt}-{bb2_fmt}) | Volume: {last_vol:.2f}
+Bollinger: {bb0_fmt} (Range {bb1_fmt}-{bb2_fmt}) | Volume: {vol24_fmt}
 
 ⚠️ Strictly follow this HTML format:
 Strict rule:
@@ -694,7 +703,7 @@ Stop Loss: <code>(Price)</code>
 • RSI: {safe_rsi} (value and One short sentence)
 • MACD: {macd_fmt} (value and One short sentence)
 • Bollinger Bands: (One short sentence)
-• Volume: {last_vol:.2f} (value and One short sentence)
+• Volume: {vol24_fmt} (value and One short sentence)
 
 <b>Note: No intro/outro, strictly follow the headers above.</b>
 """
@@ -815,7 +824,7 @@ async def on_startup(app):
     pool = await asyncpg.create_pool(
     DATABASE_URL,
     min_size=0,                   # لا اتصالات مفتوحة وقت الخمول
-    max_size=5,                   # عدد الاتصالات المتزامنة كافي للبوت المتوسط
+    max_size=10,                   # عدد الاتصالات المتزامنة كافي للبوت المتوسط
     command_timeout=60,
     timeout=60,
     max_inactive_connection_lifetime=60  # اغلاق الاتصالات الغير مستخدمة
