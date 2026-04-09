@@ -71,7 +71,7 @@ async def create_nowpayments_invoice(user_id: int):
     url = "https://api.nowpayments.io/v1/invoice"
     headers = {"x-api-key": NOWPAYMENTS_API_KEY, "Content-Type": "application/json"}
     data = {
-        "price_amount": 10,
+        "price_amount": 30,
         "price_currency": "usd",
         "order_id": str(user_id),
         "ipn_callback_url": f"{WEBHOOK_URL}/webhook/nowpayments",
@@ -84,11 +84,11 @@ async def create_nowpayments_invoice(user_id: int):
     except: return None
 
 async def send_stars_invoice(chat_id: int, lang="ar"):
-    prices = [LabeledPrice(label="اشتراك البوت بـ 500 نجمة مدى الحياة ⭐" if lang=="ar" else "Subscribe Now with 500 ⭐ Lifetime", amount=500)]
+    prices = [LabeledPrice(label="اشتراك البوت بـ 1500 نجمة مدى الحياة ⭐" if lang=="ar" else "Subscribe Now with 1500 ⭐ Lifetime", amount=1500)]
     await bot.send_invoice(
         chat_id=chat_id,
         title="اشتراك VIP" if lang=="ar" else "VIP Subscription",
-        description="اشترك الآن باستخدام 500 ⭐ للوصول الكامل" if lang=="ar" else "Subscribe Now with 500 ⭐ for full access",
+        description="اشترك الآن باستخدام 1500 ⭐ للوصول الكامل" if lang=="ar" else "Subscribe Now with 1500 ⭐ for full access",
         payload="stars_pay",
         provider_token="", 
         currency="XTR",
@@ -98,12 +98,12 @@ async def send_stars_invoice(chat_id: int, lang="ar"):
 def get_payment_kb(lang):
     if lang == "ar":
         return InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💎 اشترك الآن (10 USDT مدى الحياة)", callback_data="pay_crypto")],
-            [InlineKeyboardButton(text=" اشترك الآن بـ 500 نجمة مدى الحياة⭐", callback_data="pay_stars")]
+            [InlineKeyboardButton(text="💎 اشترك الآن (30 USDT مدى الحياة)", callback_data="pay_crypto")],
+            [InlineKeyboardButton(text=" اشترك الآن بـ 1500 نجمة مدى الحياة⭐", callback_data="pay_stars")]
         ])
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💎 Subscribe Now (10 USDT Lifetime)", callback_data="pay_crypto")],
-        [InlineKeyboardButton(text="⭐ Subscribe Now with 500 Stars Lifetime", callback_data="pay_stars")]
+        [InlineKeyboardButton(text="💎 Subscribe Now (30 USDT Lifetime)", callback_data="pay_crypto")],
+        [InlineKeyboardButton(text="⭐ Subscribe Now with 1500 Stars Lifetime", callback_data="pay_stars")]
     ])
 
 # --- رادار الفرص الذكي ---
@@ -192,9 +192,11 @@ async def ai_opportunity_radar(pool):
                 hint_ar = "🎯 تحليل القناص: تم رصد تقاطع إيجابي مع ارتداد من مناطق دعم قوية جداً. فرصة ذات احتمالية نجاح عالية."
                 hint_en = "🎯 Sniper Analysis: Bullish cross detected with a bounce from strong support zones. High probability setup."
 
+            
                 # --- إرسال الإشعارات للمستخدمين ---
-# --- إرسال الإشعارات للمستخدمين (للأدمن فقط للتجربة) ---
-                users = await pool.fetch("SELECT user_id, lang FROM users_info WHERE user_id IN ($1, $2, $3)", ADMIN_USER_ID, 8241472209, 565965404)
+                # --- إرسال الإشعارات للمستخدمين ---
+                users = await pool.fetch("SELECT user_id, lang FROM users_info")
+
 
                 for row in users:
                     uid = row["user_id"]
@@ -362,6 +364,41 @@ async def ask_groq(prompt, lang="ar"):
 
 
 # --- الأوامر ---
+@dp.message(Command("send"))
+async def broadcast_message(m: types.Message):
+    if m.from_user.id != ADMIN_USER_ID:
+        return await m.answer("❌ هذا الأمر مخصص للأدمن فقط.")
+
+    # استخراج نص الرسالة بعد الأمر
+    text = m.text.replace("/send", "").strip()
+
+    if not text:
+        return await m.answer("⚠️ اكتب الرسالة بعد الأمر.\n\nمثال:\n/send مرحباً بالجميع")
+
+    pool = dp['db_pool']
+
+    users = [
+379535032
+]
+
+    sent = 0
+    failed = 0
+
+    await m.answer(f"🚀 جاري الإرسال إلى {len(users)} مستخدم...")
+
+    for user_id in users:
+        try:
+            await bot.send_message(user_id, text)
+            sent += 1
+            await asyncio.sleep(0.05)
+        except:
+            failed += 1
+
+    await m.answer(
+        f"✅ انتهى الإرسال\n\n"
+        f"📨 تم الإرسال: {sent}\n"
+        f"❌ فشل: {failed}"
+    )
 @dp.message(Command("status"))
 async def status_cmd(m: types.Message):
     pool = dp['db_pool']
@@ -446,7 +483,7 @@ async def set_lang(cb: types.CallbackQuery):
     elif has_tr:
         msg = "🎁 لديك تجربة مجانية واحدة! أرسل رمز العملة للتحليل." if lang == "ar" else "🎁 You have one free trial! Send a coin symbol for analysis."
     else:
-        msg = "⚠️ انتهت تجربتك المجانية. للوصول الكامل، يرجى الاشتراك مقابل 10 USDT أو 500 ⭐ لمرة واحدة." if lang == "ar" else "⚠️ Your free trial has ended. For full access, please subscribe for a one-time fee of 10 USDT or 500 ⭐."
+        msg = "⚠️ انتهت تجربتك المجانية. للوصول الكامل، يرجى الاشتراك مقابل 30 USDT أو 1500 ⭐ لمرة واحدة." if lang == "ar" else "⚠️ Your free trial has ended. For full access, please subscribe for a one-time fee of 30 USDT or 1500 ⭐."
     
     await cb.message.edit_text(msg, reply_markup=None if (is_paid or has_tr) else get_payment_kb(lang))
 
@@ -476,32 +513,55 @@ async def handle_symbol(m: types.Message):
     # 1. التحقق من الصلاحية
     if not (await is_user_paid(pool, uid)) and not (await has_trial(pool, uid)):
         return await m.answer(
-            "⚠️ انتهت تجربتك المجانية. للوصول الكامل، يرجى الاشتراك مقابل 10 USDT أو 500 ⭐ لمرة واحدة." if lang=="ar" 
-            else "⚠️ Your free trial has ended. For full access, please subscribe for a one-time fee of 10 USDT or 500 ⭐.", 
+            "⚠️ انتهت تجربتك المجانية. للوصول الكامل، يرجى الاشتراك مقابل 30 USDT أو 1500 ⭐ لمرة واحدة." if lang=="ar" 
+            else "⚠️ Your free trial has ended. For full access, please subscribe for a one-time fee of 30 USDT or 1500 ⭐.", 
             reply_markup=get_payment_kb(lang)
         )
     
-    sym = m.text.strip().upper()
+    user_sym = m.text.strip().upper()
+
+    symbol_map = {
+        "XAU": "PAXG",
+        "GOLD": "PAXG"
+}
+
+    sym = symbol_map.get(user_sym, user_sym)
     
     # 2. إرسال رسالة الانتظار وتخزينها في متغير
     status_msg = await m.answer("⏳ جاري جلب السعر..." if lang=="ar" else "⏳ Fetching price...")
 
     try:
         async with httpx.AsyncClient() as client:
-            res = await client.get(
-                f"https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol={sym}", 
-                headers={"X-CMC_PRO_API_KEY": CMC_KEY},
-                timeout=10
-            )
-            data = res.json()
 
-            # التحقق مما إذا كان الـ API قد أعاد خطأ أو لم يجد العملة
-            if res.status_code != 200 or "data" not in data or sym not in data["data"]:
+    # --- السعر من Gate.io ---
+            pair = f"{sym}_USDT"
+            res_gate = await client.get(
+                "https://api.gateio.ws/api/v4/spot/tickers",
+                params={"currency_pair": pair},
+                timeout=10
+    )
+
+            data_gate = res_gate.json()
+
+            if not data_gate:
                 raise ValueError("Symbol not found")
 
-            price = data["data"][sym]["quote"]["USD"]["price"]
-            # 👇 جلب الفوليوم العالمي خلال 24 ساعة 👇
-            volume_24h = data["data"][sym]["quote"]["USD"]["volume_24h"] 
+            price = float(data_gate[0]["last"])
+
+
+    # --- الفوليوم من CMC ---
+            res_cmc = await client.get(
+                f"https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol={sym}",
+                headers={"X-CMC_PRO_API_KEY": CMC_KEY},
+                timeout=10
+    )
+
+            data_cmc = res_cmc.json()
+
+            if res_cmc.status_code != 200 or "data" not in data_cmc or sym not in data_cmc["data"]:
+                raise ValueError("Volume not found")
+
+            volume_24h = data_cmc["data"][sym]["quote"]["USD"]["volume_24h"] 
             
             # 👇 إضافة الفوليوم للجلسة 👇
             user_session_data[uid] = {"sym": sym, "price": price, "volume_24h": volume_24h, "lang": lang}
@@ -515,8 +575,8 @@ async def handle_symbol(m: types.Message):
             ]])
             
             await status_msg.edit_text(
-                f"✅ العملة: {sym}\n💵 السعر: ${format_price(price)}\n⏳ اختر الإطار الزمني للتحليل:" if lang=="ar" 
-            else f"✅ Symbol: {sym}\n💵 Price: ${format_price(price)}\n⏳ Select timeframe for analysis:",
+                f"✅ العملة: {user_sym}\n💵 السعر: ${format_price(price)}\n⏳ اختر الإطار الزمني للتحليل:" if lang=="ar" 
+            else f"✅ Symbol: {user_sym}\n💵 Price: ${format_price(price)}\n⏳ Select timeframe for analysis:",
                 reply_markup=kb
             )
 
@@ -733,7 +793,7 @@ Stop Loss: <code>(Price)</code>
     if not (await is_user_paid(pool, uid)):
         async with pool.acquire() as conn:
             await conn.execute("INSERT INTO trial_users (user_id) VALUES ($1) ON CONFLICT DO NOTHING", uid)
-        await cb.message.answer("⚠️ انتهت تجربتك المجانية. للوصول الكامل، يرجى الاشتراك مقابل 10 USDT أو 500 ⭐ لمرة واحدة." if lang=="ar" else "⚠️ Your free trial has ended. For full access, please subscribe for a one-time fee of 10 USDT or 500 ⭐.", reply_markup=get_payment_kb(lang))
+        await cb.message.answer("⚠️ انتهت تجربتك المجانية. للوصول الكامل، يرجى الاشتراك مقابل 30 USDT أو 1500 ⭐ لمرة واحدة." if lang=="ar" else "⚠️ Your free trial has ended. For full access, please subscribe for a one-time fee of 30 USDT or 1500 ⭐.", reply_markup=get_payment_kb(lang))
 
 # --- الدفع الكريبتو ---
 @dp.callback_query(F.data == "pay_crypto")
@@ -841,7 +901,7 @@ async def handle_webhook(req: web.Request):
 async def on_startup(app):
     pool = await asyncpg.create_pool(
     DATABASE_URL,
-    min_size=0,                   # لا اتصالات مفتوحة وقت الخمول
+    min_size=1,                   # لا اتصالات مفتوحة وقت الخمول
     max_size=10,                   # عدد الاتصالات المتزامنة كافي للبوت المتوسط
     command_timeout=60,
     timeout=60,
@@ -870,7 +930,7 @@ async def on_startup(app):
             await conn.execute("INSERT INTO paid_users (user_id) VALUES ($1) ON CONFLICT DO NOTHING", uid)
     
     #asyncio.create_task(ai_opportunity_radar(pool))  # تم التعليق لإيقاف الرادار عند التشغيل
-    #asyncio.create_task(daily_channel_post())
+    asyncio.create_task(daily_channel_post())
     await bot.set_webhook(f"{WEBHOOK_URL}/")
 
 app = web.Application()
