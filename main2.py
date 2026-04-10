@@ -71,7 +71,7 @@ async def create_nowpayments_invoice(user_id: int):
     url = "https://api.nowpayments.io/v1/invoice"
     headers = {"x-api-key": NOWPAYMENTS_API_KEY, "Content-Type": "application/json"}
     data = {
-        "price_amount": 10,
+        "price_amount": 30,
         "price_currency": "usd",
         "order_id": str(user_id),
         "ipn_callback_url": f"{WEBHOOK_URL}/webhook/nowpayments",
@@ -84,11 +84,11 @@ async def create_nowpayments_invoice(user_id: int):
     except: return None
 
 async def send_stars_invoice(chat_id: int, lang="ar"):
-    prices = [LabeledPrice(label="اشتراك البوت بـ 500 نجمة مدى الحياة ⭐" if lang=="ar" else "Subscribe Now with 500 ⭐ Lifetime", amount=500)]
+    prices = [LabeledPrice(label="اشتراك البوت بـ 1500 نجمة مدى الحياة ⭐" if lang=="ar" else "Subscribe Now with 1500 ⭐ Lifetime", amount=1500)]
     await bot.send_invoice(
         chat_id=chat_id,
         title="اشتراك VIP" if lang=="ar" else "VIP Subscription",
-        description="اشترك الآن باستخدام 500 ⭐ للوصول الكامل" if lang=="ar" else "Subscribe Now with 500 ⭐ for full access",
+        description="اشترك الآن باستخدام 1500 ⭐ للوصول الكامل" if lang=="ar" else "Subscribe Now with 1500 ⭐ for full access",
         payload="stars_pay",
         provider_token="", 
         currency="XTR",
@@ -98,163 +98,277 @@ async def send_stars_invoice(chat_id: int, lang="ar"):
 def get_payment_kb(lang):
     if lang == "ar":
         return InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💎 اشترك الآن (10 USDT مدى الحياة)", callback_data="pay_crypto")],
-            [InlineKeyboardButton(text=" اشترك الآن بـ 500 نجمة مدى الحياة⭐", callback_data="pay_stars")]
+            [InlineKeyboardButton(text="💎 اشترك الآن (30 USDT مدى الحياة)", callback_data="pay_crypto")],
+            [InlineKeyboardButton(text=" اشترك الآن بـ 1500 نجمة مدى الحياة⭐", callback_data="pay_stars")]
         ])
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💎 Subscribe Now (10 USDT Lifetime)", callback_data="pay_crypto")],
-        [InlineKeyboardButton(text="⭐ Subscribe Now with 500 Stars Lifetime", callback_data="pay_stars")]
+        [InlineKeyboardButton(text="💎 Subscribe Now (30 USDT Lifetime)", callback_data="pay_crypto")],
+        [InlineKeyboardButton(text="⭐ Subscribe Now with 1500 Stars Lifetime", callback_data="pay_stars")]
     ])
 
 # --- رادار الفرص الذكي ---
 async def ai_opportunity_radar(pool):
-    while True:
-        try:
-            headers = {"X-CMC_PRO_API_KEY": CMC_KEY}
+    try:
+        headers = {"X-CMC_PRO_API_KEY": CMC_KEY}
 
-            async with httpx.AsyncClient(timeout=20) as client:
-                # جلب أحدث العملات
-                res = await client.get(
-                    "https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest",
-                    headers=headers,
-                    params={"limit": "100"}
-                )
-                coins = res.json()["data"]
-                opportunities = []
+        STABLE_COINS = {
+            "USDT","USDC","BUSD","DAI","TUSD","FDUSD","USDP","GUSD","USDD","LUSD"
+        }
 
-                # فلترة العملات حسب حجم التداول، السعر، والسيولة
-                for c in coins:
-                    price = c["quote"]["USD"]["price"]
-                    volume = c["quote"]["USD"]["volume_24h"]
-                    change = c["quote"]["USD"]["percent_change_24h"]
-                    marketcap = c["quote"]["USD"]["market_cap"]
+        async with httpx.AsyncClient(timeout=20) as client:
 
-                    if (
-                        volume > 60_000_000 and
-                        abs(change) > 5 and
-                        marketcap > 120_000_000
-                    ):
-                        opportunities.append(c)
+            res = await client.get(
+                "https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest",
+                headers=headers,
+                params={"limit": "250"}
+            )
 
-                if not opportunities:
-                    opportunities = coins
+            coins = res.json()["data"]
 
-                selected = random.choice(opportunities)
+            best_coin = None
+            best_score = 0
+            best_meta = None
 
-                symbol = selected["symbol"]
-                price = selected["quote"]["USD"]["price"]
-                volume = selected["quote"]["USD"]["volume_24h"]
-                change = selected["quote"]["USD"]["percent_change_24h"]
+            for c in coins:
+                symbol = c["symbol"]
 
-                price_display = f"{price:.6f}" if price < 1 else f"{price:,.2f}"
+                if symbol in STABLE_COINS:
+                    continue
 
-                # ===== حساب قوة الفرصة بشكل محسّن =====
-                change_score = min(50, abs(change) * 2.5)         # تأثير التغير السعري
-                volume_score = min(50, volume / 2_000_000)        # تأثير حجم التداول
-                score = int(change_score + volume_score)          # مجموع النقاط من 0-100
+                volume = c["quote"]["USD"]["volume_24h"]
+                marketcap = c["quote"]["USD"]["market_cap"]
+                change24 = c["quote"]["USD"]["percent_change_24h"]
 
-                # تحديد نوع الإشارة
-                if score > 85:
-                    signal = "Whale Activity 🐋 "
-                elif score > 70:
-                    signal = "Smart Money 🚨 "
-                elif score > 60:
-                    signal = "Breakout 📈 "
-                else:
-                    signal = "Momentum 🔥 "
+                # فلترة ذكية
+                if volume < 5_000_000 or marketcap < 10_000_000:
+                    continue
 
-                # تحليل AI
-                insight_ar = await ask_groq(
-                    f"اكتب سطرين قصيرين يصفان الزخم السعري وحجم التداول لعملة {symbol} بسعر {price_display}. عربي فقط.",
-                    lang="ar"
-                )
-                insight_en = await ask_groq(
-                    f"Write two short lines describing price momentum and trading activity for {symbol} at {price_display}. English only.",
-                    lang="en"
-                )
+                if abs(change24) < 0.4:
+                    continue
 
-                # تلميح للمجانيين (بدون كشف الاسم)
-                hint_ar = "📈 تحليل سريع: تم رصد حركة قوية محتملة في السوق قد تشير إلى فرصة قادمة."
-                hint_en = "📈 Quick Analysis: Strong market activity detected, potential opportunity ahead."
+                price = c["quote"]["USD"]["price"]
 
-                # --- مؤقتاً لإرسال الرادار لمستخدم واحد (ID الأدمن) ---
-                users = await pool.fetch("SELECT user_id, lang FROM users_info")  # ID الأدمن
+                candles = await get_candles_gate(f"{symbol}_USDT", "1h", limit=120)
+                if not candles:
+                    continue
 
-                for row in users:
-                    uid = row["user_id"]
-                    lang = row["lang"] or "ar"
+                df = pd.DataFrame(candles)
+                df = df.iloc[:, :6]
+                df.columns = ["timestamp", "volume", "close", "high", "low", "open"]
 
-                    paid = await is_user_paid(pool, uid)
+                for col in ["close","high","low","open","volume"]:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
 
-                    if paid:
-                        # VIP - كامل التفاصيل
-                        if lang == "ar":
-                            text = (
-                                f"🚨 <b>رادار السوق الذكي VIP</b>\n"
-                                f"━━━━━━━━━━━━━━\n"
-                                f"💎 العملة: #{symbol}\n"
-                                f"💵 السعر الحالي: ${price_display}\n"
-                                f"⚡ نوع الإشارة: {signal}\n"
-                                f"📊 قوة الفرصة: {score}/100\n\n"
-                                f"📈 الرؤية الفنية:\n{insight_ar}\n"
-                                f"━━━━━━━━━━━━━━"
-                            )
-                        else:
-                            text = (
-                                f"🚨 <b>VIP Smart Market Radar</b>\n"
-                                f"━━━━━━━━━━━━━━\n"
-                                f"💎 Coin: #{symbol}\n"
-                                f"💵 Price: ${price_display}\n"
-                                f"⚡ Signal: {signal}\n"
-                                f"📊 Opportunity Score: {score}/100\n\n"
-                                f"📈 Technical Insight:\n{insight_en}\n"
-                                f"━━━━━━━━━━━━━━"
-                            )
-                    else:
-                        # مجاني - يظهر الإشارة والتحليل بدون كشف الاسم
-                        if lang == "ar":
-                            text = (
-                                f"📡 <b>رادار الإنفجارات السعرية</b>\n"
-                                f"━━━━━━━━━━━━━━\n"
-                                f"💎 العملة: ••••• 🔒\n"
-                                f"⚡ نوع الإشارة: {signal}\n"
-                                f"💵 السعر الحالي: ${price_display}\n"
-                                f"📊 قوة الفرصة: {score}/100\n\n"
-                                f"{hint_ar}\n\n"
-                                f"اشترك VIP لكشف اسم العملة والأهداف.\n"
-                                f"━━━━━━━━━━━━━━"
-                            )
-                        else:
-                            text = (
-                                f"📡 <b>Price Explosion Radar</b>\n"
-                                f"━━━━━━━━━━━━━━\n"
-                                f"💎 Coin: ••••• 🔒\n"
-                                f"⚡ Signal: {signal}\n"
-                                f"💵 Current Price: ${price_display}\n"
-                                f"📊 Opportunity Score: {score}/100\n\n"
-                                f"{hint_en}\n\n"
-                                f"Subscribe VIP to unlock the coin and targets.\n"
-                                f"━━━━━━━━━━━━━━"
-                            )
+                last_rsi, last_macd_diff, last_bb, last_vol, high, low = compute_indicators(candles)
 
-                    try:
-                        await bot.send_message(
-                            uid,
-                            text,
-                            parse_mode=ParseMode.HTML,
-                            reply_markup=None if paid else get_payment_kb(lang)
+                # -----------------
+                # Indicators
+                # -----------------
+                ema50 = df["close"].ewm(span=50).mean()
+                ema200 = df["close"].ewm(span=200).mean()
+                trend_up = df["close"].iloc[-1] > ema200.iloc[-1]
+
+                avg_vol = df["volume"].rolling(20).mean()
+                volume_spike = df["volume"].iloc[-1] > (avg_vol.iloc[-1] * 2.5)
+
+                range_20 = df["high"].rolling(20).max() - df["low"].rolling(20).min()
+                squeeze = range_20.iloc[-1] < (price * 0.07)
+
+                recent_high = df["high"].rolling(20).max().iloc[-2]
+                breakout = price > recent_high
+
+                fake_move = (high - low) / price > 0.35
+                if fake_move:
+                    continue
+
+                # -----------------
+                # 🎯 PRO SCORING SYSTEM (MAX 100)
+                # -----------------
+                score = 0
+
+                # RSI
+                if 40 <= last_rsi <= 55:
+                    score += 15
+                elif 35 <= last_rsi < 40:
+                    score += 10
+
+                # MACD
+                if last_macd_diff > 0:
+                    score += 15
+                    if last_macd_diff > 0.002:
+                        score += 5
+
+                # Trend
+                if trend_up:
+                    score += 15
+
+                # Volume
+                if volume_spike:
+                    score += 20
+                    if df["volume"].iloc[-1] > (avg_vol.iloc[-1] * 3):
+                        score += 5
+
+                # Squeeze
+                if squeeze:
+                    score += 10
+
+                # Breakout
+                if breakout:
+                    score += 15
+
+                # Small cap boost
+                if marketcap < 150_000_000:
+                    score += 5
+
+                # -----------------
+                # 🛑 HARD FILTERS
+                # -----------------
+                if not volume_spike:
+                    score -= 15
+
+                if last_rsi < 35:
+                    score -= 10
+
+                if not trend_up:
+                    score -= 15
+
+                # شمعة ضعيفة
+                body = abs(df["close"].iloc[-1] - df["open"].iloc[-1])
+                if body < (price * 0.003):
+                    score -= 5
+
+                # -----------------
+                # 🔒 Clamp
+                # -----------------
+                score = max(0, min(score, 100))
+
+                # -----------------
+                # 💣 Elite filter
+                # -----------------
+                if score >= 90:
+                    if not (volume_spike and breakout and trend_up):
+                        score = 85
+
+                # -----------------
+                # اختيار الأفضل
+                # -----------------
+                if score > best_score:
+                    best_score = score
+                    best_coin = c
+                    best_meta = {
+                        "symbol": symbol,
+                        "price": price
+                    }
+
+                await asyncio.sleep(0.15)
+
+            # -----------------
+            # فلترة نهائية
+            # -----------------
+            if not best_coin or best_score < 60:
+                print("Radar: No strong setup.")
+                return
+
+            # -----------------
+            # نوع الإشارة
+            # -----------------
+            if best_score >= 90:
+                signal = "💣 SMART MONEY"
+            elif best_score >= 80:
+                signal = "🚀 STRONG BREAKOUT"
+            elif best_score >= 70:
+                signal = "🎯 HIGH PROBABILITY"
+            else:
+                signal = "⚡ EARLY SETUP"
+
+            symbol = best_meta["symbol"]
+            price = best_meta["price"]
+
+            insight_ar = await ask_groq(
+                f"اشرح باختصار سبب احتمال صعود {symbol} بسبب الفوليوم والتجميع والاختراق. سطرين فقط.",
+                lang="ar"
+            )
+
+            insight_en = await ask_groq(
+                f"Explain briefly why {symbol} may pump based on volume, accumulation and breakout. 2 lines.",
+                lang="en"
+            )
+
+            # --- إرسال الإشعارات للمستخدمين ---
+            users = await pool.fetch("SELECT user_id, lang FROM users_info")
+
+            for row in users:
+                uid = row["user_id"]
+                lang = row["lang"] or "ar"
+                paid = await is_user_paid(pool, uid)
+
+                # ---------- VIP ----------
+                if paid:
+                    if lang == "ar":
+                        text = (
+                            f"🚨 <b>رادار السوق الذكي VIP</b>\n"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"💎 العملة: #{symbol}\n"
+                            f"💵 السعر: ${format_price(price)}\n"
+                            f"⚡ الإشارة: {signal}\n"
+                            f"📊 السكور: {best_score}/100\n\n"
+                            f"📈 التحليل:\n{insight_ar}\n"
+                            f"━━━━━━━━━━━━━━"
                         )
-                        await asyncio.sleep(0.05)
+                    else:
+                        text = (
+                            f"🚨 <b>VIP Smart Market Radar</b>\n"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"💎 Coin: #{symbol}\n"
+                            f"💵 Price: ${format_price(price)}\n"
+                            f"⚡ Signal: {signal}\n"
+                            f"📊 Score: {best_score}/100\n\n"
+                            f"📈 Insight:\n{insight_en}\n"
+                            f"━━━━━━━━━━━━━━"
+                        )
 
-                    except Exception as e:
-                        print(f"Could not send radar to user {uid}: {e}")
-                        continue
+                # ---------- FREE ----------
+                else:
+                    if lang == "ar":
+                        text = (
+                            f"📡 <b>رادار الإنفجارات السعرية</b>\n"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"💎 العملة: •••• 🔒\n"
+                            f"⚡ الإشارة: {signal}\n"
+                            f"📊 السكور: {best_score}/100\n\n"
+                            f"🔥 تم رصد تجميع قوي + فوليوم غير طبيعي\n"
+                            f"🚀 احتمال انفجار سعري قريب\n\n"
+                            f"اشترك VIP لكشف اسم العملة والأهداف\n"
+                            f"━━━━━━━━━━━━━━"
+                        )
+                    else:
+                        text = (
+                            f"📡 <b>Price Explosion Radar</b>\n"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"💎 Coin: •••• 🔒\n"
+                            f"⚡ Signal: {signal}\n"
+                            f"📊 Score: {best_score}/100\n\n"
+                            f"🔥 Strong accumulation + abnormal volume\n"
+                            f"🚀 Possible breakout soon\n\n"
+                            f"Subscribe VIP to unlock the coin and exact targets.\n"
+                            f"━━━━━━━━━━━━━━"
+                        )
 
-        except Exception as e:
-            print(f"Radar Error: {e}")
+                try:
+                    await bot.send_message(
+                        uid,
+                        text,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=None if paid else get_payment_kb(lang)
+                    )
+                except:
+                    continue
 
-        # الانتظار قبل الدورة القادمة (6 ساعات)
-        await asyncio.sleep(84000)  # 6 ساعات # انتطار الدورة القادمة
+    except Exception as e:
+        print(f"Radar Error: {e}")
+
+        # تم تصحيح وقت الانتظار ليكون 6 ساعات بالضبط (6 * 60 * 60)
+  # 6 ساعات # انتطار الدورة القادمة
 async def daily_channel_post():
     # معرف القناة (تأكد من كتابة يوزر قناتك هنا)
     CHANNEL_ID = "@AiCryptoGPT" 
@@ -351,8 +465,79 @@ async def ask_groq(prompt, lang="ar"):
         print(f"Error in ask_groq: {e}")
         return "⚠️ Error generating analysis"
 
-
 # --- الأوامر ---
+@dp.message(Command("sendphoto"))
+async def send_photo_to_trials(m: types.Message):
+    if m.from_user.id != ADMIN_USER_ID:
+        return await m.answer("❌ هذا الأمر للأدمن فقط")
+
+    pool = dp['db_pool']
+
+    # جلب مستخدمي التجربة فقط واستثناء VIP
+    users = await pool.fetch("""
+    SELECT u.user_id
+    FROM users_info u
+    JOIN trial_users t ON u.user_id = t.user_id
+    WHERE u.user_id NOT IN (SELECT user_id FROM paid_users)
+    """)
+
+    # تأكد أن الأدمن أرسل صورة مع الأمر
+    if not m.photo:
+        return await m.answer("❌ أرسل الأمر مع صورة")
+
+    photo = m.photo[-1].file_id  # أعلى جودة
+    caption = m.caption or ""
+
+    sent = 0
+
+    for row in users:
+        try:
+            await bot.send_photo(
+                chat_id=row["user_id"],
+                photo=photo,
+                caption=caption
+            )
+            sent += 1
+            await asyncio.sleep(0.05)
+        except:
+            continue
+
+    await m.answer(f"✅ تم إرسال الصورة إلى {sent} مستخدم تجربة")
+@dp.message(Command("send"))
+async def broadcast_message(m: types.Message):
+    if m.from_user.id != ADMIN_USER_ID:
+        return await m.answer("❌ هذا الأمر مخصص للأدمن فقط.")
+
+    # استخراج نص الرسالة بعد الأمر
+    text = m.text.replace("/send", "").strip()
+
+    if not text:
+        return await m.answer("⚠️ اكتب الرسالة بعد الأمر.\n\nمثال:\n/send مرحباً بالجميع")
+
+    pool = dp['db_pool']
+
+    users = [
+565965404
+]
+
+    sent = 0
+    failed = 0
+
+    await m.answer(f"🚀 جاري الإرسال إلى {len(users)} مستخدم...")
+
+    for user_id in users:
+        try:
+            await bot.send_message(user_id, text)
+            sent += 1
+            await asyncio.sleep(0.05)
+        except:
+            failed += 1
+
+    await m.answer(
+        f"✅ انتهى الإرسال\n\n"
+        f"📨 تم الإرسال: {sent}\n"
+        f"❌ فشل: {failed}"
+    )
 @dp.message(Command("status"))
 async def status_cmd(m: types.Message):
     pool = dp['db_pool']
@@ -382,6 +567,15 @@ async def admin_cmd(m: types.Message):
         "📌 للتواصل مع الدعم، يرجى التواصل مع هذا الحساب:\n@AiCrAdmin\n\n"
         "📌 For support, contact:\n@AiCrAdmin"
     )
+@dp.message(Command("radar"))
+async def radar_cmd(m: types.Message):
+
+    if m.from_user.id != ADMIN_USER_ID:
+        return await m.answer("❌ هذا الأمر للأدمن فقط")
+
+    await m.answer("📡 جاري تشغيل الرادار...")
+
+    asyncio.create_task(ai_opportunity_radar(dp['db_pool']))
 @dp.message(Command("clean"))
 async def clean_db_cmd(m: types.Message):
     if m.from_user.id != ADMIN_USER_ID:
@@ -428,7 +622,7 @@ async def set_lang(cb: types.CallbackQuery):
     elif has_tr:
         msg = "🎁 لديك تجربة مجانية واحدة! أرسل رمز العملة للتحليل." if lang == "ar" else "🎁 You have one free trial! Send a coin symbol for analysis."
     else:
-        msg = "⚠️ انتهت تجربتك المجانية. للوصول الكامل، يرجى الاشتراك مقابل 10 USDT أو 500 ⭐ لمرة واحدة." if lang == "ar" else "⚠️ Your free trial has ended. For full access, please subscribe for a one-time fee of 10 USDT or 500 ⭐."
+        msg = "⚠️ انتهت تجربتك المجانية. للوصول الكامل، يرجى الاشتراك مقابل 30 USDT أو 1500 ⭐ لمرة واحدة." if lang == "ar" else "⚠️ Your free trial has ended. For full access, please subscribe for a one-time fee of 30 USDT or 1500 ⭐."
     
     await cb.message.edit_text(msg, reply_markup=None if (is_paid or has_tr) else get_payment_kb(lang))
 
@@ -458,32 +652,55 @@ async def handle_symbol(m: types.Message):
     # 1. التحقق من الصلاحية
     if not (await is_user_paid(pool, uid)) and not (await has_trial(pool, uid)):
         return await m.answer(
-            "⚠️ انتهت تجربتك المجانية. للوصول الكامل، يرجى الاشتراك مقابل 10 USDT أو 500 ⭐ لمرة واحدة." if lang=="ar" 
-            else "⚠️ Your free trial has ended. For full access, please subscribe for a one-time fee of 10 USDT or 500 ⭐.", 
+            "⚠️ انتهت تجربتك المجانية. للوصول الكامل، يرجى الاشتراك مقابل 30 USDT أو 1500 ⭐ لمرة واحدة." if lang=="ar" 
+            else "⚠️ Your free trial has ended. For full access, please subscribe for a one-time fee of 30 USDT or 1500 ⭐.", 
             reply_markup=get_payment_kb(lang)
         )
     
-    sym = m.text.strip().upper()
+    user_sym = m.text.strip().upper()
+
+    symbol_map = {
+        "XAU": "PAXG",
+        "GOLD": "PAXG"
+}
+
+    sym = symbol_map.get(user_sym, user_sym)
     
     # 2. إرسال رسالة الانتظار وتخزينها في متغير
     status_msg = await m.answer("⏳ جاري جلب السعر..." if lang=="ar" else "⏳ Fetching price...")
 
     try:
         async with httpx.AsyncClient() as client:
-            res = await client.get(
-                f"https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol={sym}", 
-                headers={"X-CMC_PRO_API_KEY": CMC_KEY},
-                timeout=10
-            )
-            data = res.json()
 
-            # التحقق مما إذا كان الـ API قد أعاد خطأ أو لم يجد العملة
-            if res.status_code != 200 or "data" not in data or sym not in data["data"]:
+    # --- السعر من Gate.io ---
+            pair = f"{sym}_USDT"
+            res_gate = await client.get(
+                "https://api.gateio.ws/api/v4/spot/tickers",
+                params={"currency_pair": pair},
+                timeout=10
+    )
+
+            data_gate = res_gate.json()
+
+            if not data_gate:
                 raise ValueError("Symbol not found")
 
-            price = data["data"][sym]["quote"]["USD"]["price"]
-            # 👇 جلب الفوليوم العالمي خلال 24 ساعة 👇
-            volume_24h = data["data"][sym]["quote"]["USD"]["volume_24h"] 
+            price = float(data_gate[0]["last"])
+
+
+    # --- الفوليوم من CMC ---
+            res_cmc = await client.get(
+                f"https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol={sym}",
+                headers={"X-CMC_PRO_API_KEY": CMC_KEY},
+                timeout=10
+    )
+
+            data_cmc = res_cmc.json()
+
+            if res_cmc.status_code != 200 or "data" not in data_cmc or sym not in data_cmc["data"]:
+                raise ValueError("Volume not found")
+
+            volume_24h = data_cmc["data"][sym]["quote"]["USD"]["volume_24h"] 
             
             # 👇 إضافة الفوليوم للجلسة 👇
             user_session_data[uid] = {"sym": sym, "price": price, "volume_24h": volume_24h, "lang": lang}
@@ -497,8 +714,8 @@ async def handle_symbol(m: types.Message):
             ]])
             
             await status_msg.edit_text(
-                f"✅ العملة: {sym}\n💵 السعر: ${format_price(price)}\n⏳ اختر الإطار الزمني للتحليل:" if lang=="ar" 
-            else f"✅ Symbol: {sym}\n💵 Price: ${format_price(price)}\n⏳ Select timeframe for analysis:",
+                f"✅ العملة: {user_sym}\n💵 السعر: ${format_price(price)}\n⏳ اختر الإطار الزمني للتحليل:" if lang=="ar" 
+            else f"✅ Symbol: {user_sym}\n💵 Price: ${format_price(price)}\n⏳ Select timeframe for analysis:",
                 reply_markup=kb
             )
 
@@ -715,7 +932,7 @@ Stop Loss: <code>(Price)</code>
     if not (await is_user_paid(pool, uid)):
         async with pool.acquire() as conn:
             await conn.execute("INSERT INTO trial_users (user_id) VALUES ($1) ON CONFLICT DO NOTHING", uid)
-        await cb.message.answer("⚠️ انتهت تجربتك المجانية. للوصول الكامل، يرجى الاشتراك مقابل 10 USDT أو 500 ⭐ لمرة واحدة." if lang=="ar" else "⚠️ Your free trial has ended. For full access, please subscribe for a one-time fee of 10 USDT or 500 ⭐.", reply_markup=get_payment_kb(lang))
+        await cb.message.answer("⚠️ انتهت تجربتك المجانية. للوصول الكامل، يرجى الاشتراك مقابل 30 USDT أو 1500 ⭐ لمرة واحدة." if lang=="ar" else "⚠️ Your free trial has ended. For full access, please subscribe for a one-time fee of 30 USDT or 1500 ⭐.", reply_markup=get_payment_kb(lang))
 
 # --- الدفع الكريبتو ---
 @dp.callback_query(F.data == "pay_crypto")
@@ -823,7 +1040,7 @@ async def handle_webhook(req: web.Request):
 async def on_startup(app):
     pool = await asyncpg.create_pool(
     DATABASE_URL,
-    min_size=0,                   # لا اتصالات مفتوحة وقت الخمول
+    min_size=1,                   # لا اتصالات مفتوحة وقت الخمول
     max_size=10,                   # عدد الاتصالات المتزامنة كافي للبوت المتوسط
     command_timeout=60,
     timeout=60,
@@ -847,7 +1064,7 @@ async def on_startup(app):
         await conn.execute("CREATE TABLE IF NOT EXISTS trial_users (user_id BIGINT PRIMARY KEY)")
         
         # ✅ إضافة المستخدمين المدفوعين مباشرة بدون تكرار
-        initial_paid_users = {1811762192, 756814703}  # استخدام مجموعة لتجنب التكرار
+        initial_paid_users = {5687542129, 756814703}  # استخدام مجموعة لتجنب التكرار
         for uid in initial_paid_users:
             await conn.execute("INSERT INTO paid_users (user_id) VALUES ($1) ON CONFLICT DO NOTHING", uid)
     
