@@ -113,11 +113,13 @@ def get_payment_kb(lang):
     if lang == "ar":
         return InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="💎 اشترك الآن (10 USDT شهرياً)", callback_data="pay_crypto")],
-            [InlineKeyboardButton(text=" اشترك الآن بـ 500 نجمة شهرياً⭐", callback_data="pay_stars")]
+            [InlineKeyboardButton(text="⭐ اشترك الآن بـ 500 نجمة شهرياً", callback_data="pay_stars")],
+            [InlineKeyboardButton(text="🎁 احصل على شهر مجاني (دعوة أصدقاء)", callback_data="pay_invite")]
         ])
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💎 Subscribe Now (10 USDT Monthly)", callback_data="pay_crypto")],
-        [InlineKeyboardButton(text="⭐ Subscribe Now with 500 Stars Monthly", callback_data="pay_stars")]
+        [InlineKeyboardButton(text="⭐ Subscribe Now with 500 Stars Monthly", callback_data="pay_stars")],
+        [InlineKeyboardButton(text="🎁 Get a Free Month (Invite Friends)", callback_data="pay_invite")]
     ])
 
 # --- رادار الفرص الذكي ---
@@ -616,38 +618,76 @@ async def send_photo_to_trials(m: types.Message):
 
     await m.answer(f"✅ تم إرسال الصورة إلى {sent} مستخدم تجربة")
 @dp.message(Command("send"))
-async def broadcast_message(m: types.Message):
+async def broadcast_to_trials(m: types.Message):
     if m.from_user.id != ADMIN_USER_ID:
         return await m.answer("❌ هذا الأمر مخصص للأدمن فقط.")
 
-    # استخراج نص الرسالة بعد الأمر
-    text = m.text.replace("/send", "").strip()
-
-    if not text:
-        return await m.answer("⚠️ اكتب الرسالة بعد الأمر.\n\nمثال:\n/send مرحباً بالجميع")
-
     pool = dp['db_pool']
 
-    users = await pool.fetch("SELECT user_id FROM users_info")
+    # جلب مستخدمي التجربة فقط واستثناء المشتركين VIP حالياً مع جلب لغتهم
+    users = await pool.fetch("""
+        SELECT u.user_id, u.lang
+        FROM users_info u
+        JOIN trial_users t ON u.user_id = t.user_id
+        WHERE u.user_id NOT IN (SELECT user_id FROM paid_users)
+    """)
 
+    if not users:
+        return await m.answer("⚠️ لا يوجد مستخدمو تجربة (غير مشتركين) لإرسال الرسالة لهم.")
+
+    # صياغة الرسائل الترويجية
+    msg_ar = (
+        "🎁 <b>خبر سار! يمكنك الآن الحصول على VIP مجاناً</b>\n"
+        "━━━━━━━━━━━━━━\n"
+        "لقد أضفنا ميزة جديدة تتيح لك استخدام البوت بكامل مميزاته دون الحاجة للدفع!\n\n"
+        "فقط قم بدعوة 10 من أصدقائك لتجربة البوت، وسوف يتم تفعيل اشتراكك الشهري <b>تلقائياً ومجاناً</b>.\n\n"
+        "اضغط على الزر أدناه للحصول على رابط دعوتك الخاص وبدء جمع النقاط 👇"
+    )
+
+    msg_en = (
+        "🎁 <b>Great News! Get VIP for FREE</b>\n"
+        "━━━━━━━━━━━━━━\n"
+        "We've added a new feature that lets you use all bot features for free!\n\n"
+        "Just invite 10 friends to try the bot, and your monthly subscription will be activated <b>automatically and for free</b>.\n\n"
+        "Click the button below to get your invite link and start earning points 👇"
+    )
+
+    await m.answer(f"🚀 جاري الإرسال إلى {len(users)} مستخدم تجربة (غير مشترك)...")
+    
     sent = 0
     failed = 0
 
-    await m.answer(f"🚀 جاري الإرسال إلى {len(users)} مستخدم...")
-
     for row in users:
+        uid = row["user_id"]
+        lang = row["lang"] or "ar"
+        
+        # إنشاء الزر الخاص بالدعوة لكل رسالة
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(
+                text="🎁 احصل على شهر مجاني" if lang == "ar" else "🎁 Get a Free Month", 
+                callback_data="pay_invite"
+            )
+        ]])
+
         try:
-            await bot.send_message(row["user_id"], text)
+            await bot.send_message(
+                uid, 
+                msg_ar if lang == "ar" else msg_en, 
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb
+            )
             sent += 1
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.05) # أمان لتجنب الحظر
         except:
             failed += 1
 
     await m.answer(
-        f"✅ انتهى الإرسال\n\n"
+        f"✅ انتهى الإرسال بنجاح\n\n"
         f"📨 تم الإرسال: {sent}\n"
         f"❌ فشل: {failed}"
     )
+
+
 @dp.message(Command("status"))
 async def status_cmd(m: types.Message):
     pool = dp['db_pool']
@@ -710,10 +750,25 @@ async def clean_db_cmd(m: types.Message):
     
 @dp.message(Command("start"))
 async def start_cmd(m: types.Message):
+    # استخراج رقم الشخص الذي أرسل الدعوة
+    args = m.text.split()
+    referrer_id = None
+    if len(args) > 1 and args[1].isdigit():
+        referrer_id = int(args[1])
+        if referrer_id == m.from_user.id: 
+            referrer_id = None # منع المستخدم من دعوة نفسه
+
     async with dp['db_pool'].acquire() as conn:
-        await conn.execute("INSERT INTO users_info (user_id) VALUES ($1) ON CONFLICT DO NOTHING", m.from_user.id)
+        # تسجيل المستخدم مع حفظ رقم المستدعي
+        await conn.execute("""
+            INSERT INTO users_info (user_id, invited_by) 
+            VALUES ($1, $2) 
+            ON CONFLICT (user_id) DO NOTHING
+        """, m.from_user.id, referrer_id)
+        
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🇸🇦 العربية", callback_data="lang_ar"), InlineKeyboardButton(text="🇺🇸 English", callback_data="lang_en")]])
     await m.answer("👋 أهلاً بك، يرجى اختيار لغتك:\nWelcome, please choose your language:", reply_markup=kb)
+
 
 @dp.callback_query(F.data.startswith("lang_"))
 async def set_lang(cb: types.CallbackQuery):
@@ -1077,8 +1132,46 @@ Stop Loss: <code>(Price)</code>
     
     if not (await is_user_paid(pool, uid)):
         async with pool.acquire() as conn:
-            await conn.execute("INSERT INTO trial_users (user_id) VALUES ($1) ON CONFLICT DO NOTHING", uid)
+            # إضافة المستخدم لجدول التجربة المجانية ومعرفة هل هو إدخال جديد
+            res = await conn.execute("INSERT INTO trial_users (user_id) VALUES ($1) ON CONFLICT DO NOTHING", uid)
+            
+            # إذا كان المستخدم يستهلك التجربة لأول مرة
+                        # إذا كان المستخدم يستهلك التجربة لأول مرة
+            if "INSERT 0 1" in res:
+                # نبحث هل هناك شخص قام بدعوته؟
+                inviter = await conn.fetchrow("SELECT invited_by FROM users_info WHERE user_id = $1", uid)
+                if inviter and inviter['invited_by']:
+                    inviter_id = inviter['invited_by']
+                    
+                    # زيادة نقاط المستدعي
+                    await conn.execute("UPDATE users_info SET ref_count = COALESCE(ref_count, 0) + 1 WHERE user_id = $1", inviter_id)
+                    current_count = await conn.fetchval("SELECT ref_count FROM users_info WHERE user_id = $1", inviter_id)
+                    
+                    # 🌐 جلب لغة المستدعي لتحديد لغة الرسالة
+                    inviter_lang_row = await conn.fetchrow("SELECT lang FROM users_info WHERE user_id = $1", inviter_id)
+                    inv_lang = inviter_lang_row['lang'] if inviter_lang_row and inviter_lang_row['lang'] else "ar"
+                    
+                    try:
+                        # إذا لم يصل للـ 10، نرسل له تنبيه تشجيعي
+                        if current_count < 10:
+                            msg_ar = f"🎁 <b>نقطة جديدة!</b>\nصديقك استخدم التجربة المجانية.\nرصيدك الحالي: {current_count}/10 نقاط."
+                            msg_en = f"🎁 <b>New Point!</b>\nYour friend used the free trial.\nCurrent balance: {current_count}/10 points."
+                            await bot.send_message(inviter_id, msg_ar if inv_lang == "ar" else msg_en, parse_mode=ParseMode.HTML)
+                        
+                        # إذا وصل لـ 10، نفعل الشهر المجاني ونصفر العداد
+                        else:
+                            await extend_user_subscription(pool, inviter_id)
+                            await conn.execute("UPDATE users_info SET ref_count = 0 WHERE user_id = $1", inviter_id)
+                            
+                            win_msg_ar = "🎉 <b>مبروك!</b>\nلقد دعوت 10 أشخاص بنجاح واستهلكوا تجربتهم.\nتم تفعيل اشتراك <b>شهر VIP مجاني</b> في حسابك مكافأة من نظام الدعوات!"
+                            win_msg_en = "🎉 <b>Congratulations!</b>\nYou have successfully invited 10 friends who used their trial.\nA <b>Free VIP Month</b> has been activated in your account as a reward from the invite system!"
+                            await bot.send_message(inviter_id, win_msg_ar if inv_lang == "ar" else win_msg_en, parse_mode=ParseMode.HTML)
+                    except Exception as e:
+                        print(f"Ref notification error: {e}")
+
+
         await cb.message.answer("⚠️ انتهت تجربتك المجانية. للوصول الكامل، يرجى الاشتراك مقابل 10 USDT أو 500 ⭐ شهرياً." if lang=="ar" else "⚠️ Your free trial has ended. For full access, please subscribe for a Monthly fee of 10 USDT or 500 ⭐.", reply_markup=get_payment_kb(lang))
+
 # --- الدفع الكريبتو ---
 @dp.callback_query(F.data == "pay_crypto")
 async def crypto_pay(cb: types.CallbackQuery):
@@ -1128,6 +1221,43 @@ async def success_pay(m: types.Message):
         "✅ Payment confirmed! Thank you for subscribing.\nYour VIP subscription is active for 30 days."
     )
 
+@dp.callback_query(F.data == "pay_invite")
+async def invite_pay_call(cb: types.CallbackQuery):
+    uid, pool = cb.from_user.id, dp['db_pool']
+    user = await pool.fetchrow("SELECT lang FROM users_info WHERE user_id = $1", uid)
+    lang = user['lang'] if user else "ar"
+    
+    bot_info = await bot.get_me()
+    count = await pool.fetchval("SELECT ref_count FROM users_info WHERE user_id = $1", uid)
+    count = count or 0 
+    
+    ref_link = f"https://t.me/{bot_info.username}?start={uid}"
+    
+    if lang == "ar":
+        msg = (
+            "💎 <b>احصل على اشتراك VIP مجاناً!</b>\n"
+            "━━━━━━━━━━━━━━\n"
+            "ادعُ أصدقاءك لاستخدام البوت واحصل على اشتراك VIP مجاني كبديل للدفع.\n\n"
+            "🎁 <b>المكافأة:</b> شهر VIP مجاني لكل 10 أشخاص يستخدمون التجربة المجانية.\n\n"
+            f"📊 <b>رصيدك الحالي:</b> {count}/10 نقاط\n"
+            f"🔗 <b>رابطك الخاص:</b>\n{ref_link}\n"
+            "━━━━━━━━━━━━━━\n"
+            "انسخ الرابط وشاركه الآن لتفعيل اشتراكك تلقائياً عند اكتمال العدد!"
+        )
+    else:
+        msg = (
+            "💎 <b>Get a FREE VIP Subscription!</b>\n"
+            "━━━━━━━━━━━━━━\n"
+            "Invite friends to use the bot and get a free VIP subscription instead of paying.\n\n"
+            "🎁 <b>Reward:</b> 1 Free VIP Month for every 10 friends who use their free trial.\n\n"
+            f"📊 <b>Current Balance:</b> {count}/10 points\n"
+            f"🔗 <b>Your Invite Link:</b>\n{ref_link}\n"
+            "━━━━━━━━━━━━━━\n"
+            "Copy the link and share it now to automatically activate your subscription!"
+        )
+        
+    # نعرض له الرابط ونبقي أزرار الدفع موجودة في حال غير رأيه وقرر يدفع
+    await cb.message.edit_text(msg, parse_mode=ParseMode.HTML, reply_markup=get_payment_kb(lang))
 
 # --- Webhook NOWPayments (IPN) ---
 async def nowpayments_ipn(req: web.Request):
@@ -1210,14 +1340,16 @@ async def on_startup(app):
         # 2. إجبار تحديث الجداول القديمة (للمشتركين الحاليين)
         await conn.execute("ALTER TABLE users_info ADD COLUMN IF NOT EXISTS last_active DATE")
         await conn.execute("ALTER TABLE paid_users ADD COLUMN IF NOT EXISTS expiry_date TIMESTAMP")
-        
+        await conn.execute("ALTER TABLE users_info ADD COLUMN IF NOT EXISTS invited_by BIGINT")
+        await conn.execute("ALTER TABLE users_info ADD COLUMN IF NOT EXISTS ref_count INTEGER DEFAULT 0")
+
         # 3. تفعيل حسابات الأدمن بشكل دائم
         initial_paid_users = {1317225334, 756814703}
         for uid in initial_paid_users:
             await conn.execute("INSERT INTO paid_users (user_id) VALUES ($1) ON CONFLICT DO NOTHING", uid)
 
     #asyncio.create_task(ai_opportunity_radar(pool))
-    asyncio.create_task(daily_channel_post())
+    #asyncio.create_task(daily_channel_post())
     await bot.set_webhook(f"{WEBHOOK_URL}/")
 
 
