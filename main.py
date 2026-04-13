@@ -46,9 +46,23 @@ dp = Dispatcher(storage=MemoryStorage())
 user_session_data = {}
 
 # --- وظائف قاعدة البيانات ---
+async def extend_user_subscription(pool, user_id: int):
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO paid_users (user_id, expiry_date) 
+            VALUES ($1, CURRENT_TIMESTAMP + INTERVAL '30 days') 
+            ON CONFLICT (user_id) DO UPDATE 
+            SET expiry_date = GREATEST(COALESCE(paid_users.expiry_date, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP) + INTERVAL '30 days'
+        """, user_id)
+
 async def is_user_paid(pool, user_id: int):
-    res = await pool.fetchval("SELECT 1 FROM paid_users WHERE user_id = $1", user_id)
+    query = """
+        SELECT 1 FROM paid_users 
+        WHERE user_id = $1 AND (expiry_date IS NULL OR expiry_date > CURRENT_TIMESTAMP)
+    """
+    res = await pool.fetchval(query, user_id)
     return bool(res)
+
 
 async def has_trial(pool, user_id: int):
     res = await pool.fetchval("SELECT 1 FROM trial_users WHERE user_id = $1", user_id)
@@ -71,7 +85,7 @@ async def create_nowpayments_invoice(user_id: int):
     url = "https://api.nowpayments.io/v1/invoice"
     headers = {"x-api-key": NOWPAYMENTS_API_KEY, "Content-Type": "application/json"}
     data = {
-        "price_amount": 30,
+        "price_amount": 10,
         "price_currency": "usd",
         "order_id": str(user_id),
         "ipn_callback_url": f"{WEBHOOK_URL}/webhook/nowpayments",
@@ -84,11 +98,11 @@ async def create_nowpayments_invoice(user_id: int):
     except: return None
 
 async def send_stars_invoice(chat_id: int, lang="ar"):
-    prices = [LabeledPrice(label="اشتراك البوت بـ 1500 نجمة مدى الحياة ⭐" if lang=="ar" else "Subscribe Now with 1500 ⭐ Lifetime", amount=1500)]
+    prices = [LabeledPrice(label="اشتراك البوت بـ 500 شهرياً ⭐" if lang=="ar" else "Subscribe Now with 500 ⭐ Monthly", amount=500)]
     await bot.send_invoice(
         chat_id=chat_id,
         title="اشتراك VIP" if lang=="ar" else "VIP Subscription",
-        description="اشترك الآن باستخدام 1500 ⭐ للوصول الكامل" if lang=="ar" else "Subscribe Now with 1500 ⭐ for full access",
+        description="اشترك الآن باستخدام 500 ⭐ للوصول الكامل" if lang=="ar" else "Subscribe Now with 500 ⭐ for full access",
         payload="stars_pay",
         provider_token="", 
         currency="XTR",
@@ -98,12 +112,12 @@ async def send_stars_invoice(chat_id: int, lang="ar"):
 def get_payment_kb(lang):
     if lang == "ar":
         return InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💎 اشترك الآن (30 USDT مدى الحياة)", callback_data="pay_crypto")],
-            [InlineKeyboardButton(text=" اشترك الآن بـ 1500 نجمة مدى الحياة⭐", callback_data="pay_stars")]
+            [InlineKeyboardButton(text="💎 اشترك الآن (10 USDT شهرياً)", callback_data="pay_crypto")],
+            [InlineKeyboardButton(text=" اشترك الآن بـ 500 نجمة شهرياً⭐", callback_data="pay_stars")]
         ])
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💎 Subscribe Now (30 USDT Lifetime)", callback_data="pay_crypto")],
-        [InlineKeyboardButton(text="⭐ Subscribe Now with 1500 Stars Lifetime", callback_data="pay_stars")]
+        [InlineKeyboardButton(text="💎 Subscribe Now (10 USDT Monthly)", callback_data="pay_crypto")],
+        [InlineKeyboardButton(text="⭐ Subscribe Now with 500 Stars Monthly", callback_data="pay_stars")]
     ])
 
 # --- رادار الفرص الذكي ---
@@ -324,7 +338,7 @@ async def ai_opportunity_radar(pool):
 
             # --- إرسال الإشعارات للمستخدمين (نفس نصوصك تماماً) ---
             # --- إرسال الإشعارات للمستخدمين ---
-            users = await pool.fetch("SELECT user_id, lang FROM users_info")
+            users = await pool.fetch("SELECT user_id, lang FROM users_info WHERE user_id IN ($1, $2, $3)", ADMIN_USER_ID, 8241472209, 565965404)
 
             for row in users:
                 uid = row["user_id"]
@@ -342,7 +356,8 @@ async def ai_opportunity_radar(pool):
                             f"⚡ الإشارة: {signal}\n"
                             f"📊 السكور: {best_score}/100\n\n"
                             f"📈 التحليل:\n{insight_ar}\n"
-                            f"━━━━━━━━━━━━━━"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"📌 نتائج تحليلات البوت: @N_Results"
                         )
                     else:
                         text = (
@@ -353,7 +368,8 @@ async def ai_opportunity_radar(pool):
                             f"⚡ Signal: {signal}\n"
                             f"📊 Score: {best_score}/100\n\n"
                             f"📈 Insight:\n{insight_en}\n"
-                            f"━━━━━━━━━━━━━━"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"📌 Bot Results: @N_Results"
                         )
 
                 # ---------- FREE ----------
@@ -368,7 +384,8 @@ async def ai_opportunity_radar(pool):
                             f"🔥 تم رصد تجميع قوي + فوليوم غير طبيعي\n"
                             f"🚀 احتمال انفجار سعري قريب\n\n"
                             f"اشترك VIP لكشف اسم العملة والأهداف\n"
-                            f"━━━━━━━━━━━━━━"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"📌 نتائج تحليلات البوت: @N_Results"
                         )
                     else:
                         text = (
@@ -380,7 +397,8 @@ async def ai_opportunity_radar(pool):
                             f"🔥 Strong accumulation + abnormal volume\n"
                             f"🚀 Possible breakout soon\n\n"
                             f"Subscribe VIP to unlock the coin and exact targets.\n"
-                            f"━━━━━━━━━━━━━━"
+                            f"━━━━━━━━━━━━━━\n"
+                            f"📌 Bot Results: @N_Results"
                         )
 
                 try:
@@ -495,6 +513,71 @@ async def ask_groq(prompt, lang="ar"):
         return "⚠️ Error generating analysis"
 
 # --- الأوامر ---
+@dp.message(Command("convert_old"))
+async def convert_old_users_cmd(m: types.Message):
+    if m.from_user.id != ADMIN_USER_ID:
+        return await m.answer("❌ هذا الأمر للأدمن فقط")
+    
+    pool = dp['db_pool']
+    
+    # 1. جلب المستخدمين القدامى (الذين ليس لديهم تاريخ انتهاء)
+    old_users = await pool.fetch("SELECT user_id FROM paid_users WHERE expiry_date IS NULL")
+    
+    if not old_users:
+        return await m.answer("⚠️ لا يوجد مشتركون بنظام مدى الحياة لتحويلهم.")
+
+    async with pool.acquire() as conn:
+        # 2. تحديث قاعدة البيانات وإعطائهم 30 يوم من الآن
+        await conn.execute("""
+            UPDATE paid_users 
+            SET expiry_date = CURRENT_TIMESTAMP + INTERVAL '30 days'
+            WHERE expiry_date IS NULL
+        """)
+
+    # 3. صياغة الرسائل التوضيحية
+    msg_ar = (
+        "📢 <b>تحديث هام بخصوص اشتراكك</b>\n"
+        "━━━━━━━━━━━━━━\n\n"
+        "مرحباً بك عميلنا العزيز،\n"
+        "لضمان استمرارية عمل البوت بأعلى كفاءة وتغطية التكاليف التشغيلية (لخوادم الذكاء الاصطناعي وجلب البيانات)، تم تحديث نظام الاشتراك ليكون <b>شهرياً</b>.\n\n"
+        "🎁 <b>تقديراً لدعمك المبكر لنا</b>:\n"
+        "تم منحك فترة مجانية لمدة <b>30 يوماً</b> تبدأ من هذه اللحظة. سيُطلب منك تجديد الاشتراك الشهري بعد انتهاء هذا الشهر.\n\n"
+        "شكراً لتفهمك ودعمك المستمر لنجاح بوتنا! 💎"
+    )
+    
+    msg_en = (
+        "📢 <b>Important Update Regarding Your Subscription</b>\n"
+        "━━━━━━━━━━━━━━\n\n"
+        "Dear valued user,\n"
+        "To ensure the bot continues operating at maximum efficiency and to cover operational costs (AI and data servers), our subscription model has been updated to a <b>monthly</b> plan.\n\n"
+        "🎁 <b>As a token of appreciation for your early support</b>:\n"
+        "Your account has been granted a free <b>30-day</b> period starting today. Monthly renewals will apply after this month ends.\n\n"
+        "Thank you for your understanding and continuous support for NaiF CHarT! 💎"
+    )
+
+    await m.answer(f"⏳ جاري تحويل {len(old_users)} اشتراك وإرسال الرسائل التوضيحية...")
+    sent_count = 0
+
+    # 4. إرسال الرسالة لكل مستخدم قديم
+    for row in old_users:
+        uid = row["user_id"]
+        
+        # معرفة لغة المستخدم
+        user_info = await pool.fetchrow("SELECT lang FROM users_info WHERE user_id = $1", uid)
+        lang = user_info['lang'] if user_info and user_info['lang'] else "ar"
+        
+        text = msg_ar if lang == "ar" else msg_en
+        
+        try:
+            await bot.send_message(uid, text, parse_mode=ParseMode.HTML)
+            sent_count += 1
+            await asyncio.sleep(0.05) # أمان لتجنب حظر التليجرام بسبب الإرسال السريع
+        except Exception as e:
+            print(f"Failed to send to {uid}: {e}")
+            continue
+
+    await m.answer(f"✅ تمت العملية بنجاح!\n👥 تم تحويل اشتراك {len(old_users)} مستخدم.\n📨 تم إيصال الرسالة إلى {sent_count} منهم.")
+
 @dp.message(Command("sendphoto"))
 async def send_photo_to_trials(m: types.Message):
     if m.from_user.id != ADMIN_USER_ID:
@@ -655,7 +738,7 @@ async def set_lang(cb: types.CallbackQuery):
     elif has_tr:
         msg = "🎁 لديك تجربة مجانية واحدة! أرسل رمز العملة للتحليل." if lang == "ar" else "🎁 You have one free trial! Send a coin symbol for analysis."
     else:
-        msg = "⚠️ انتهت تجربتك المجانية. للوصول الكامل، يرجى الاشتراك مقابل 30 USDT أو 1500 ⭐ لمرة واحدة." if lang == "ar" else "⚠️ Your free trial has ended. For full access, please subscribe for a one-time fee of 30 USDT or 1500 ⭐."
+        msg = "⚠️ انتهت تجربتك المجانية. للوصول الكامل، يرجى الاشتراك مقابل 10 USDT أو 500 ⭐ شهرياً." if lang == "ar" else "⚠️ Your free trial has ended. For full access, please subscribe for a Monthly fee of 10 USDT or 500 ⭐."
     
     await cb.message.edit_text(msg, reply_markup=None if (is_paid or has_tr) else get_payment_kb(lang))
 
@@ -728,8 +811,8 @@ async def handle_symbol(m: types.Message):
     
     if not (await is_user_paid(pool, uid)) and not (await has_trial(pool, uid)):
         return await m.answer(
-            "⚠️ انتهت تجربتك المجانية. للوصول الكامل، يرجى الاشتراك مقابل 30 USDT أو 1500 ⭐ لمرة واحدة." if lang=="ar" 
-            else "⚠️ Your free trial has ended. For full access, please subscribe for a one-time fee of 30 USDT or 1500 ⭐.", 
+            "⚠️ انتهت تجربتك المجانية. للوصول الكامل، يرجى الاشتراك مقابل 10 USDT أو 1500 ⭐ شهرياً." if lang=="ar" 
+            else "⚠️ Your free trial has ended. For full access, please subscribe for a Monthly fee of 10 USDT or 500 ⭐.", 
             reply_markup=get_payment_kb(lang)
         )
     
@@ -751,7 +834,11 @@ async def handle_symbol(m: types.Message):
 
             if isinstance(data_gate, list) and len(data_gate) > 0 and "last" in data_gate[0]:
                 price = float(data_gate[0]["last"])
-                volume_24h = 0
+                
+                # ✅ التعديل هنا: نأخذ الفوليوم من Gate.io كقيمة افتراضية (quote_volume يمثل الفوليوم بـ USDT)
+                volume_24h = float(data_gate[0].get("quote_volume", 0))
+
+                # محاولة جلب الفوليوم الأدق من CMC
                 try:
                     res_cmc = await client.get(
                         f"https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol={sym}",
@@ -760,9 +847,10 @@ async def handle_symbol(m: types.Message):
                     )
                     data_cmc = res_cmc.json()
                     if res_cmc.status_code == 200 and sym in data_cmc.get("data", {}):
-                        volume_24h = data_cmc["data"][sym]["quote"]["USD"]["volume_24h"]
+                        # إذا نجح، استبدل فوليوم Gate.io بفوليوم CMC الكلي
+                        volume_24h = float(data_cmc["data"][sym]["quote"]["USD"]["volume_24h"])
                 except:
-                    pass
+                    pass # إذا فشل CMC، سيبقى الفوليوم محتفظاً بقيمة Gate.io ولن يصبح 0
 
                 user_session_data[uid] = {
                     "sym": sym, "price": price, "volume_24h": volume_24h, 
@@ -770,6 +858,7 @@ async def handle_symbol(m: types.Message):
                 }
             else:
                 raise ValueError("Symbol not found in Gate.io")
+
 
     except Exception:
         dex_data = await search_dex_coin(sym)
@@ -989,7 +1078,7 @@ Stop Loss: <code>(Price)</code>
     if not (await is_user_paid(pool, uid)):
         async with pool.acquire() as conn:
             await conn.execute("INSERT INTO trial_users (user_id) VALUES ($1) ON CONFLICT DO NOTHING", uid)
-        await cb.message.answer("⚠️ انتهت تجربتك المجانية. للوصول الكامل، يرجى الاشتراك مقابل 30 USDT أو 1500 ⭐ لمرة واحدة." if lang=="ar" else "⚠️ Your free trial has ended. For full access, please subscribe for a one-time fee of 30 USDT or 1500 ⭐.", reply_markup=get_payment_kb(lang))
+        await cb.message.answer("⚠️ انتهت تجربتك المجانية. للوصول الكامل، يرجى الاشتراك مقابل 10 USDT أو 500 ⭐ شهرياً." if lang=="ar" else "⚠️ Your free trial has ended. For full access, please subscribe for a Monthly fee of 10 USDT or 500 ⭐.", reply_markup=get_payment_kb(lang))
 # --- الدفع الكريبتو ---
 @dp.callback_query(F.data == "pay_crypto")
 async def crypto_pay(cb: types.CallbackQuery):
@@ -1030,13 +1119,15 @@ async def success_pay(m: types.Message):
     uid, pool = m.from_user.id, dp['db_pool']
     user = await pool.fetchrow("SELECT lang FROM users_info WHERE user_id = $1", uid)
     lang = user['lang'] if user else "ar"
-    async with pool.acquire() as conn:
-        await conn.execute("INSERT INTO paid_users (user_id) VALUES ($1) ON CONFLICT DO NOTHING", m.from_user.id)
+    
+    await extend_user_subscription(pool, uid)
+    
     await m.answer(
-        "✅ تم تأكيد الدفع بنجاح! شكراً لاشتراكك. يمكنك الآن استخدام البوت بشكل كامل."
+        "✅ تم تأكيد الدفع بنجاح! شكراً لاشتراكك.\nتم تفعيل اشتراكك كـ VIP لمدة 30 يوماً."
         if lang == "ar" else
-        "✅ Payment confirmed! Thank you for subscribing. You can now use the bot fully."
+        "✅ Payment confirmed! Thank you for subscribing.\nYour VIP subscription is active for 30 days."
     )
+
 
 # --- Webhook NOWPayments (IPN) ---
 async def nowpayments_ipn(req: web.Request):
@@ -1053,15 +1144,11 @@ async def nowpayments_ipn(req: web.Request):
                 pool = req.app['db_pool']
                 
                 async with pool.acquire() as conn:
-                    # 1. تفعيل المستخدم في جدول الـ VIP
-                    await conn.execute(
-                        "INSERT INTO paid_users (user_id) VALUES ($1) ON CONFLICT DO NOTHING",
-                        user_id
-                    )
+                    await extend_user_subscription(pool, user_id)
                     
-                    # 2. جلب لغة المستخدم من قاعدة البيانات
                     user_row = await conn.fetchrow("SELECT lang FROM users_info WHERE user_id = $1", user_id)
                     user_lang = user_row['lang'] if user_row and user_row['lang'] else "ar"
+
 
                 # 3. تحديد نص الرسالة بناءً على اللغة
                 if user_lang == "ar":
@@ -1095,13 +1182,13 @@ async def handle_webhook(req: web.Request):
 
 async def on_startup(app):
     pool = await asyncpg.create_pool(
-    DATABASE_URL,
-    min_size=1,                   # لا اتصالات مفتوحة وقت الخمول
-    max_size=10,                   # عدد الاتصالات المتزامنة كافي للبوت المتوسط
-    command_timeout=60,
-    timeout=60,
-    max_inactive_connection_lifetime=60  # اغلاق الاتصالات الغير مستخدمة
-)
+        DATABASE_URL,
+        min_size=1,
+        max_size=10,
+        command_timeout=60,
+        timeout=60,
+        max_inactive_connection_lifetime=60
+    )
 
     app['db_pool'] = dp['db_pool'] = pool
 
@@ -1112,21 +1199,27 @@ async def on_startup(app):
         print("✅ Database connected successfully")
     except Exception as e:
         print(f"❌ Database connection failed: {e}")
+        
+    # ⚠️ إنشاء وتحديث الجداول (يجب أن يكون خارج الـ except)
     async with pool.acquire() as conn:
-        await conn.execute("CREATE TABLE IF NOT EXISTS users_info (user_id BIGINT PRIMARY KEY, lang TEXT)")
-        # داخل دالة on_startup ابحث عن سطر إنشاء الجداول وأضف هذا:
-        await conn.execute("ALTER TABLE users_info ADD COLUMN IF NOT EXISTS last_active DATE")
-        await conn.execute("CREATE TABLE IF NOT EXISTS paid_users (user_id BIGINT PRIMARY KEY)")
+        # 1. إنشاء الجداول بالشكل الجديد
+        await conn.execute("CREATE TABLE IF NOT EXISTS users_info (user_id BIGINT PRIMARY KEY, lang TEXT, last_active DATE)")
+        await conn.execute("CREATE TABLE IF NOT EXISTS paid_users (user_id BIGINT PRIMARY KEY, expiry_date TIMESTAMP)")
         await conn.execute("CREATE TABLE IF NOT EXISTS trial_users (user_id BIGINT PRIMARY KEY)")
         
-        # ✅ إضافة المستخدمين المدفوعين مباشرة بدون تكرار
-        initial_paid_users = {5687542129, 756814703}  # استخدام مجموعة لتجنب التكرار
+        # 2. إجبار تحديث الجداول القديمة (للمشتركين الحاليين)
+        await conn.execute("ALTER TABLE users_info ADD COLUMN IF NOT EXISTS last_active DATE")
+        await conn.execute("ALTER TABLE paid_users ADD COLUMN IF NOT EXISTS expiry_date TIMESTAMP")
+        
+        # 3. تفعيل حسابات الأدمن بشكل دائم
+        initial_paid_users = {1317225334, 756814703}
         for uid in initial_paid_users:
             await conn.execute("INSERT INTO paid_users (user_id) VALUES ($1) ON CONFLICT DO NOTHING", uid)
-    
-    #asyncio.create_task(ai_opportunity_radar(pool))  # تم التعليق لإيقاف الرادار عند التشغيل
+
+    #asyncio.create_task(ai_opportunity_radar(pool))
     asyncio.create_task(daily_channel_post())
     await bot.set_webhook(f"{WEBHOOK_URL}/")
+
 
 app = web.Application()
 app.router.add_post("/", handle_webhook)
