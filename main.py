@@ -20,6 +20,9 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice, PreCheckoutQuery
 from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+
 
 # --- تحميل الإعدادات ---
 load_dotenv()
@@ -603,71 +606,81 @@ async def reject_radar_signal(cb: types.CallbackQuery):
         del radar_pending_approvals[signal_id]
 
     await cb.message.edit_text("❌ تم تجاهل الإشارة ولن يتم إرسالها للمستخدمين.")
+# --- إعداد حالة الانتظار ---
+class ManageSub(StatesGroup):
+    waiting_for_user_id = State()
 
-@dp.message(Command("convert_old"))
-async def convert_old_users_cmd(m: types.Message):
+# 1. أمر طلب الـ ID
+@dp.message(Command("manage"))
+async def manage_cmd(m: types.Message, state: FSMContext):
     if m.from_user.id != ADMIN_USER_ID:
-        return await m.answer("❌ هذا الأمر للأدمن فقط")
+        return
+    await m.answer("✍️ أرسل الـ ID الخاص بالمستخدم الذي تريد تعديل اشتراكه:")
+    await state.set_state(ManageSub.waiting_for_user_id)
+
+# 2. استقبال الـ ID وإرسال الأزرار
+@dp.message(ManageSub.waiting_for_user_id)
+async def process_manage_id(m: types.Message, state: FSMContext):
+    if not m.text.isdigit():
+        return await m.answer("❌ يرجى إرسال أرقام فقط (ID صحيح). أعد الإرسال:")
     
+    target_id = int(m.text)
+    await state.clear() # ننهي حالة الانتظار
+
+    # إنشاء الأزرار
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="➕ إضافة شهر", callback_data=f"sub_add_{target_id}"),
+            InlineKeyboardButton(text="➖ خصم شهر", callback_data=f"sub_min_{target_id}")
+        ]
+    ])
+    
+    await m.answer(f"⚙️ <b>إدارة اشتراك المستخدم:</b> <code>{target_id}</code>\nاختر الإجراء المطلوب:", reply_markup=kb)
+
+# 3. معالجة زر الإضافة
+@dp.callback_query(F.data.startswith("sub_add_"))
+async def add_month_btn(cb: types.CallbackQuery):
+    if cb.from_user.id != ADMIN_USER_ID:
+        return
+    
+    target_id = int(cb.data.replace("sub_add_", ""))
     pool = dp['db_pool']
     
-    # 1. جلب المستخدمين القدامى (الذين ليس لديهم تاريخ انتهاء)
-    old_users = await pool.fetch("SELECT user_id FROM paid_users WHERE expiry_date IS NULL")
-    
-    if not old_users:
-        return await m.answer("⚠️ لا يوجد مشتركون بنظام مدى الحياة لتحويلهم.")
-
     async with pool.acquire() as conn:
-        # 2. تحديث قاعدة البيانات وإعطائهم 30 يوم من الآن
+        # إضافة شهر (نفس نظام الدفع تماماً)
         await conn.execute("""
-            UPDATE paid_users 
-            SET expiry_date = CURRENT_TIMESTAMP + INTERVAL '30 days'
-            WHERE expiry_date IS NULL
-        """)
+            INSERT INTO paid_users (user_id, expiry_date) 
+            VALUES ($1, CURRENT_TIMESTAMP + INTERVAL '30 days') 
+            ON CONFLICT (user_id) DO UPDATE 
+            SET expiry_date = GREATEST(COALESCE(paid_users.expiry_date, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP) + INTERVAL '30 days'
+        """, target_id)
+        
+        new_date = await conn.fetchval("SELECT expiry_date FROM paid_users WHERE user_id = $1", target_id)
+        
+    await cb.message.edit_text(f"✅ <b>تمت الإضافة!</b>\nتم إضافة 30 يوم بنجاح للمستخدم: <code>{target_id}</code>\n📅 تاريخ الانتهاء الجديد: {new_date.strftime('%Y-%m-%d')}")
 
-    # 3. صياغة الرسائل التوضيحية
-    msg_ar = (
-        "📢 <b>تحديث هام بخصوص اشتراكك</b>\n"
-        "━━━━━━━━━━━━━━\n\n"
-        "مرحباً بك عميلنا العزيز،\n"
-        "لضمان استمرارية عمل البوت بأعلى كفاءة وتغطية التكاليف التشغيلية (لخوادم الذكاء الاصطناعي وجلب البيانات)، تم تحديث نظام الاشتراك ليكون <b>شهرياً</b>.\n\n"
-        "🎁 <b>تقديراً لدعمك المبكر لنا</b>:\n"
-        "تم منحك فترة مجانية لمدة <b>30 يوماً</b> تبدأ من هذه اللحظة. سيُطلب منك تجديد الاشتراك الشهري بعد انتهاء هذا الشهر.\n\n"
-        "شكراً لتفهمك ودعمك المستمر لنجاح بوتنا! 💎"
-    )
+# 4. معالجة زر الخصم
+@dp.callback_query(F.data.startswith("sub_min_"))
+async def minus_month_btn(cb: types.CallbackQuery):
+    if cb.from_user.id != ADMIN_USER_ID:
+        return
     
-    msg_en = (
-        "📢 <b>Important Update Regarding Your Subscription</b>\n"
-        "━━━━━━━━━━━━━━\n\n"
-        "Dear valued user,\n"
-        "To ensure the bot continues operating at maximum efficiency and to cover operational costs (AI and data servers), our subscription model has been updated to a <b>monthly</b> plan.\n\n"
-        "🎁 <b>As a token of appreciation for your early support</b>:\n"
-        "Your account has been granted a free <b>30-day</b> period starting today. Monthly renewals will apply after this month ends.\n\n"
-        "Thank you for your understanding and continuous support for NaiF CHarT! 💎"
-    )
-
-    await m.answer(f"⏳ جاري تحويل {len(old_users)} اشتراك وإرسال الرسائل التوضيحية...")
-    sent_count = 0
-
-    # 4. إرسال الرسالة لكل مستخدم قديم
-    for row in old_users:
-        uid = row["user_id"]
+    target_id = int(cb.data.replace("sub_min_", ""))
+    pool = dp['db_pool']
+    
+    async with pool.acquire() as conn:
+        # خصم شهر
+        res = await conn.execute("""
+            UPDATE paid_users 
+            SET expiry_date = expiry_date - INTERVAL '30 days' 
+            WHERE user_id = $1
+        """, target_id)
         
-        # معرفة لغة المستخدم
-        user_info = await pool.fetchrow("SELECT lang FROM users_info WHERE user_id = $1", uid)
-        lang = user_info['lang'] if user_info and user_info['lang'] else "ar"
-        
-        text = msg_ar if lang == "ar" else msg_en
-        
-        try:
-            await bot.send_message(uid, text, parse_mode=ParseMode.HTML)
-            sent_count += 1
-            await asyncio.sleep(0.05) # أمان لتجنب حظر التليجرام بسبب الإرسال السريع
-        except Exception as e:
-            print(f"Failed to send to {uid}: {e}")
-            continue
-
-    await m.answer(f"✅ تمت العملية بنجاح!\n👥 تم تحويل اشتراك {len(old_users)} مستخدم.\n📨 تم إيصال الرسالة إلى {sent_count} منهم.")
+        if res == "UPDATE 1":
+            new_date = await conn.fetchval("SELECT expiry_date FROM paid_users WHERE user_id = $1", target_id)
+            await cb.message.edit_text(f"✅ <b>تم الخصم!</b>\nتم خصم 30 يوم بنجاح من المستخدم: <code>{target_id}</code>\n📅 تاريخ الانتهاء الجديد: {new_date.strftime('%Y-%m-%d')}")
+        else:
+            await cb.message.edit_text(f"❌ المستخدم <code>{target_id}</code> غير موجود في جدول المشتركين!")
 
 @dp.message(Command("sendphoto"))
 async def send_photo_to_trials(m: types.Message):
@@ -706,76 +719,6 @@ async def send_photo_to_trials(m: types.Message):
             continue
 
     await m.answer(f"✅ تم إرسال الصورة إلى {sent} مستخدم تجربة")
-@dp.message(Command("send"))
-async def broadcast_to_trials(m: types.Message):
-    if m.from_user.id != ADMIN_USER_ID:
-        return await m.answer("❌ هذا الأمر مخصص للأدمن فقط.")
-
-    pool = dp['db_pool']
-
-    # جلب مستخدمي التجربة فقط واستثناء المشتركين VIP حالياً مع جلب لغتهم
-    users = await pool.fetch("""
-        SELECT u.user_id, u.lang
-        FROM users_info u
-        JOIN trial_users t ON u.user_id = t.user_id
-        WHERE u.user_id NOT IN (SELECT user_id FROM paid_users)
-    """)
-
-    if not users:
-        return await m.answer("⚠️ لا يوجد مستخدمو تجربة (غير مشتركين) لإرسال الرسالة لهم.")
-
-    # صياغة الرسائل الترويجية
-    msg_ar = (
-        "🎁 <b>خبر سار! يمكنك الآن الحصول على VIP مجاناً</b>\n"
-        "━━━━━━━━━━━━━━\n"
-        "لقد أضفنا ميزة جديدة تتيح لك استخدام البوت بكامل مميزاته دون الحاجة للدفع!\n\n"
-        "فقط قم بدعوة 10 من أصدقائك لتجربة البوت، وسوف يتم تفعيل اشتراكك الشهري <b>تلقائياً ومجاناً</b>.\n\n"
-        "اضغط على الزر أدناه للحصول على رابط دعوتك الخاص وبدء جمع النقاط 👇"
-    )
-
-    msg_en = (
-        "🎁 <b>Great News! Get VIP for FREE</b>\n"
-        "━━━━━━━━━━━━━━\n"
-        "We've added a new feature that lets you use all bot features for free!\n\n"
-        "Just invite 10 friends to try the bot, and your monthly subscription will be activated <b>automatically and for free</b>.\n\n"
-        "Click the button below to get your invite link and start earning points 👇"
-    )
-
-    await m.answer(f"🚀 جاري الإرسال إلى {len(users)} مستخدم تجربة (غير مشترك)...")
-    
-    sent = 0
-    failed = 0
-
-    for row in users:
-        uid = row["user_id"]
-        lang = row["lang"] or "ar"
-        
-        # إنشاء الزر الخاص بالدعوة لكل رسالة
-        kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(
-                text="🎁 احصل على شهر مجاني" if lang == "ar" else "🎁 Get a Free Month", 
-                callback_data="pay_invite"
-            )
-        ]])
-
-        try:
-            await bot.send_message(
-                uid, 
-                msg_ar if lang == "ar" else msg_en, 
-                parse_mode=ParseMode.HTML,
-                reply_markup=kb
-            )
-            sent += 1
-            await asyncio.sleep(0.05) # أمان لتجنب الحظر
-        except:
-            failed += 1
-
-    await m.answer(
-        f"✅ انتهى الإرسال بنجاح\n\n"
-        f"📨 تم الإرسال: {sent}\n"
-        f"❌ فشل: {failed}"
-    )
-
 
 @dp.message(Command("status"))
 async def status_cmd(m: types.Message):
@@ -1143,7 +1086,7 @@ async def run_analysis(cb: types.CallbackQuery):
     if lang == "ar":
         prompt = f"""
 أنت محلل فني خبير في شركة "NaiF CHarT". حلل عملة {clean_sym} بناءً على البيانات التالية:
-السعر الحالي: {price_fmt}$ | الإطار: {tf} | RSI: {safe_rsi} | MACD: {"صاعد" if (last_macd or 0)>0 else "هابط"}
+السعر الحالي: {price_fmt}$ | الإطار: {tf} | RSI: {safe_rsi} | MACD: {macd_fmt} ({"صاعد" if (last_macd or 0)>0 else "هابط"})
 البولينجر: السعر {bb0_fmt} (نطاق {bb1_fmt} - {bb2_fmt}) | الفوليوم: {vol24_fmt}
 
 ⚠️ الالتزام التام بهذا التنسيق (استخدم وسوم HTML فقط):
@@ -1181,7 +1124,7 @@ Stop Loss: (ضع رقم منطقي)
     else:
         prompt = f"""
 You are an expert Technical Analyst at "NaiF CHarT". Analyze {clean_sym} based on:
-Price: {price_fmt}$ | Timeframe: {tf} | RSI: {safe_rsi} | MACD: {"Bullish" if (last_macd or 0)>0 else "Bearish"}
+Price: {price_fmt}$ | Timeframe: {tf} | RSI: {safe_rsi} | MACD: {macd_fmt} ({"Bullish" if (last_macd or 0)>0 else "Bearish"})
 Bollinger: {bb0_fmt} (Range {bb1_fmt}-{bb2_fmt}) | Volume: {vol24_fmt}
 
 ⚠️ Strictly follow this HTML format:
@@ -1366,7 +1309,7 @@ async def nowpayments_ipn(req: web.Request):
 
         print(f"إشعار دفع جديد: الحالة {status} للمستخدم {order_id}")
 
-        if status in ["finished", "confirmed"]:
+        if status == "finished":
             if order_id:
                 user_id = int(order_id)
                 pool = req.app['db_pool']
@@ -1447,7 +1390,7 @@ async def on_startup(app):
             await conn.execute("INSERT INTO paid_users (user_id) VALUES ($1) ON CONFLICT DO NOTHING", uid)
 
     #asyncio.create_task(ai_opportunity_radar(pool))
-    #asyncio.create_task(daily_channel_post())
+    asyncio.create_task(daily_channel_post())
     await bot.set_webhook(f"{WEBHOOK_URL}/")
 
 
