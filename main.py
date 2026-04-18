@@ -11,6 +11,8 @@ import time
 import base64
 import pandas as pd
 import uuid
+import numpy as np
+
 from aiohttp import web
 from dotenv import load_dotenv
 
@@ -52,27 +54,27 @@ dp = Dispatcher(storage=MemoryStorage())
 user_session_data = {}
 radar_pending_approvals = {}
 # --- وظائف قاعدة البيانات ---
-async def extend_user_subscription(pool, user_id: int):
-    async with pool.acquire() as conn:
-        await conn.execute("""
-            INSERT INTO paid_users (user_id, expiry_date) 
-            VALUES ($1, CURRENT_TIMESTAMP + INTERVAL '30 days') 
-            ON CONFLICT (user_id) DO UPDATE 
-            SET expiry_date = GREATEST(COALESCE(paid_users.expiry_date, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP) + INTERVAL '30 days'
-        """, user_id)
+async def extend_user_subscription(db, user_id: int):
+    # db هنا ممكن تكون pool أو conn، الاثنين فيهم execute
+    await db.execute("""
+        INSERT INTO paid_users (user_id, expiry_date) 
+        VALUES ($1, CURRENT_TIMESTAMP + INTERVAL '30 days') 
+        ON CONFLICT (user_id) DO UPDATE 
+        SET expiry_date = GREATEST(COALESCE(paid_users.expiry_date, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP) + INTERVAL '30 days'
+    """, user_id)
 
-async def is_user_paid(pool, user_id: int):
+async def is_user_paid(db, user_id: int):
     query = """
         SELECT 1 FROM paid_users 
         WHERE user_id = $1 AND (expiry_date IS NULL OR expiry_date > CURRENT_TIMESTAMP)
     """
-    res = await pool.fetchval(query, user_id)
+    res = await db.fetchval(query, user_id)
     return bool(res)
 
-
-async def has_trial(pool, user_id: int):
-    res = await pool.fetchval("SELECT 1 FROM trial_users WHERE user_id = $1", user_id)
+async def has_trial(db, user_id: int):
+    res = await db.fetchval("SELECT 1 FROM trial_users WHERE user_id = $1", user_id)
     return not bool(res)
+
 def format_price(price):
     if price is None:
         return "0.0"
@@ -154,238 +156,269 @@ async def get_orderbook_pressure(client, symbol):
         })
         if res.status_code == 200:
             data = res.json()
-            bids = sum([float(b[1]) for b in data.get("bids", [])]) # قوة الدعم (الشراء)
-            asks = sum([float(a[1]) for a in data.get("asks", [])]) # قوة المقاومة (البيع)
-            if asks == 0: return 1.0
+            bids = sum([float(b[1]) for b in data.get("bids", [])]) 
+            asks = sum([float(a[1]) for a in data.get("asks", [])]) 
+            if asks == 0: return 999.0 # لمنع القسمة على صفر
             return bids / asks
     except:
         pass
     return 1.0
 
 
+async def update_market_memory_loop(pool):
+    """مهمة خلفية لتحديث ذاكرة السوق لكل العملات بشكل دوري"""
+    # ننتظر 10 ثواني بعد تشغيل البوت عشان نتأكد إن الداتا بيز اتصلت
+    await asyncio.sleep(10) 
+    
+    while True:
+        try:
+            print("🔄 جاري سحب وتحديث ذاكرة الفوليوم (Market Memory) من CMC...")
+            headers = {"X-CMC_PRO_API_KEY": CMC_KEY}
+            async with httpx.AsyncClient(timeout=30) as client:
+                res = await client.get(
+                    "https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest",
+                    headers=headers,
+                    params={"limit": "5000"} # جلب أهم 250 عملة
+                )
+                
+                if res.status_code == 200:
+                    coins = res.json()["data"]
+                    
+                    async with pool.acquire() as conn:
+                        for c in coins:
+                            symbol = c["symbol"]
+                            # جلب نسبة التغير
+                            vol_change = float(c["quote"]["USD"].get("volume_change_24h", 0))
+                            
+                            # تخزينها في قاعدة البيانات
+                            await conn.execute("""
+                                INSERT INTO market_memory (symbol, volume_change, last_updated)
+                                VALUES ($1, $2, CURRENT_TIMESTAMP)
+                                ON CONFLICT (symbol) DO UPDATE 
+                                SET volume_change = EXCLUDED.volume_change, last_updated = CURRENT_TIMESTAMP
+                            """, symbol, f"{vol_change:.1f}%")
+                            
+                    print("✅ تم تعبئة ذاكرة السوق بنجاح! البوت الآن يمتلك نظرة شاملة.")
+        except Exception as e:
+            print(f"Market Memory Loop Error: {e}")
+        
+        # ينام ويحدث البيانات كل 4 ساعات (14400 ثانية)
+        await asyncio.sleep(14400)
+
 # --- الرادار الخارق المعدل ---
+# --- الرادار الخارق المعدل (النسخة الديناميكية الانفجارية) ---
+# --- الرادار الخارق المعدل (النسخة الديناميكية المستمرة) ---
+# --- الرادار الخارق المعدل (النسخة الاستباقية) ---
 async def ai_opportunity_radar(pool):
-    try:
-        headers = {"X-CMC_PRO_API_KEY": CMC_KEY}
-        STABLE_COINS = {"USDT","USDC","BUSD","DAI","TUSD","FDUSD","USDP","GUSD","USDD","LUSD"}
+    print("🚀 تم تشغيل الرادار الاستباقي للبحث عن التجميع قبل الانفجار...")
+    await asyncio.sleep(5)
+    
+    while True: # تشغيل مستمر بدون توقف
+        try:
+            print("🔍 جاري مسح السوق...")
+            headers = {"X-CMC_PRO_API_KEY": CMC_KEY}
+            STABLE_COINS = {"USDT","USDC","BUSD","DAI","TUSD","FDUSD","USDP","GUSD","USDD","LUSD"}
 
-        async with httpx.AsyncClient(timeout=25) as client:
-            
-            # 1. تحديد بوصلة السوق (Bitcoin Trend)
-            is_btc_bullish = await get_btc_trend(client)
-
-            # 2. جلب قائمة العملات
-            res = await client.get(
-                "https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest",
-                headers=headers,
-                params={"limit": "250"}
-            )
-            coins = res.json()["data"]
-
-            best_coin = None
-            best_score = 0
-            best_meta = None
-
-            for c in coins:
-                symbol = c["symbol"]
-                if symbol in STABLE_COINS: continue
-
-                volume = c["quote"]["USD"]["volume_24h"]
-                marketcap = c["quote"]["USD"]["market_cap"]
-                change24 = c["quote"]["USD"]["percent_change_24h"]
-
-                # 🛑 الفلترة الذكية (Hard Filters)
-                if volume < 5_000_000 or marketcap < 10_000_000: continue
-                if abs(change24) < 0.4: continue
-
-                price = c["quote"]["USD"]["price"]
-
-                # 📊 جلب بيانات 1H كفريم أساسي (نفس نظامك القديم)
-                candles = await get_candles_gate(f"{symbol}_USDT", "1h", limit=120)
-                if not candles: continue
-
-                df = pd.DataFrame(candles)
-                df = df.iloc[:, :6]
-                df.columns = ["timestamp", "volume", "close", "high", "low", "open"]
-                for col in ["close","high","low","open","volume"]:
-                    df[col] = pd.to_numeric(df[col], errors='coerce')
-
-                last_rsi, last_macd_diff, last_bb, last_vol, high, low = compute_indicators(candles)
-
-                ema50 = df["close"].ewm(span=50).mean()
-                ema200 = df["close"].ewm(span=200).mean()
-                trend_up = df["close"].iloc[-1] > ema200.iloc[-1]
-
-                avg_vol = df["volume"].rolling(20).mean()
-                volume_spike = df["volume"].iloc[-1] > (avg_vol.iloc[-1] * 2.5)
-
-                range_20 = df["high"].rolling(20).max() - df["low"].rolling(20).min()
-                squeeze = range_20.iloc[-1] < (price * 0.07)
-                recent_high = df["high"].rolling(20).max().iloc[-2]
-                breakout = price > recent_high
-
-                fake_move = (high - low) / price > 0.35
-                if fake_move: continue
-
-                # -----------------
-                # 🎯 1H BASE SCORING
-                # -----------------
-                base_score = 0
-                if 40 <= last_rsi <= 55: base_score += 15
-                elif 35 <= last_rsi < 40: base_score += 10
+            async with httpx.AsyncClient(timeout=25) as client:
                 
-                if last_macd_diff > 0:
-                    base_score += 15
-                    if last_macd_diff > 0.002: base_score += 5
+                is_btc_bullish = await get_btc_trend(client)
+
+                res = await client.get(
+                    "https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest",
+                    headers=headers,
+                    params={"limit": "250"}
+                )
                 
-                if trend_up: base_score += 15
-                
-                if volume_spike:
-                    base_score += 20
-                    if df["volume"].iloc[-1] > (avg_vol.iloc[-1] * 3): base_score += 5
-                
-                if squeeze: base_score += 10
-                if breakout: base_score += 15
-                if marketcap < 150_000_000: base_score += 5
+                if res.status_code != 200:
+                    await asyncio.sleep(30)
+                    continue
+                    
+                coins = res.json()["data"]
 
-                if not volume_spike: base_score -= 15
-                if last_rsi < 35: base_score -= 10
-                if not trend_up: base_score -= 15
+                best_coin = None
+                best_score = 0
+                best_meta = None
 
-                body = abs(df["close"].iloc[-1] - df["open"].iloc[-1])
-                if body < (price * 0.003): base_score -= 5
+                for c in coins:
+                    symbol = c["symbol"]
+                    if symbol in STABLE_COINS: continue
 
-                # ----------------------------------------------------
-                # 🚀 SUPER RADAR: Multi-Timeframe & Orderbook Funnel
-                # ----------------------------------------------------
-                # نفحص بعمق فقط العملات التي لديها أساس قوي (توفر استهلاك الـ API)
-                score = base_score
-                if score >= 45: 
-                    # 1. تأثير البيتكوين (الترند العام)
-                    if is_btc_bullish: score += 10
-                    else: score -= 5 # عقوبة إذا كان السوق ينزف
+                    volume = c["quote"]["USD"]["volume_24h"]
+                    marketcap = c["quote"]["USD"]["market_cap"]
+                    change24 = c["quote"]["USD"]["percent_change_24h"]
 
-                    # 2. فريم 15 دقيقة (نقطة الدخول والانفجار اللحظي)
-                    candles_15m = await get_candles_gate(f"{symbol}_USDT", "15m", limit=30)
-                    if candles_15m:
-                        df_15m = pd.DataFrame(candles_15m).iloc[:, :6]
-                        df_15m.columns = ["timestamp", "volume", "close", "high", "low", "open"]
-                        for col in ["close","volume","open"]: df_15m[col] = pd.to_numeric(df_15m[col], errors='coerce')
-                        
-                        vol_15m_avg = df_15m["volume"].rolling(10).mean().iloc[-1]
-                        # فوليوم انفجاري لحظي الآن
-                        if df_15m["volume"].iloc[-1] > (vol_15m_avg * 2): score += 15
-                        # شمعة 15 دقيقة خضراء صاعدة
-                        if df_15m["close"].iloc[-1] > df_15m["open"].iloc[-1]: score += 5
+                    # 🛑 الفلترة الذكية
+                    if volume < 5_000_000 or marketcap < 10_000_000: continue
+                    if abs(change24) < 0.4: continue
 
-                    # 3. فريم 4 ساعات (التأكيد الكلي)
-                    candles_4h = await get_candles_gate(f"{symbol}_USDT", "4h", limit=60)
-                    if candles_4h:
-                        df_4h = pd.DataFrame(candles_4h).iloc[:, :6]
-                        df_4h.columns = ["timestamp", "volume", "close", "high", "low", "open"]
-                        df_4h["close"] = pd.to_numeric(df_4h["close"], errors='coerce')
-                        ema50_4h = df_4h["close"].ewm(span=50).mean().iloc[-1]
-                        # ترند الماكرو إيجابي
-                        if df_4h["close"].iloc[-1] > ema50_4h: score += 10
+                    price = c["quote"]["USD"]["price"]
 
-                    # 4. دفتر الأوامر (السيولة المخفية)
-                    buy_pressure = await get_orderbook_pressure(client, symbol)
-                    if buy_pressure > 2.0: score += 20 # حيتان تشتري بجنون
-                    elif buy_pressure > 1.3: score += 10
+                    candles = await get_candles_gate(f"{symbol}_USDT", "1h", limit=120)
+                    if not candles: continue
+
+                    df = pd.DataFrame(candles)
+                    df = df.iloc[:, :6]
+                    df.columns = ["timestamp", "volume", "close", "high", "low", "open"]
+                    for col in ["close","high","low","open","volume"]:
+                        df[col] = pd.to_numeric(df[col], errors='coerce')
+
+                    last_rsi, last_macd_diff, last_bb, last_vol, high, low = compute_indicators(candles)
+
+                    ema50 = df["close"].ewm(span=50).mean()
+                    ema200 = df["close"].ewm(span=200).mean()
+                    trend_up = df["close"].iloc[-1] > ema200.iloc[-1]
+
+                    # ----------------------------------------------------
+                    # 🔥 مؤشرات التنبؤ المبكر (Pre-Breakout & Accumulation)
+                    # ----------------------------------------------------
+                    avg_vol_20 = df["volume"].rolling(20).mean().iloc[-1]
+                    avg_vol_5 = df["volume"].rolling(5).mean().iloc[-1]
+                    
+                    # 1. التجميع الصامت: الفوليوم يرتفع تدريجياً لكن السعر لم ينفجر بعد
+                    silent_accumulation = (avg_vol_5 > avg_vol_20 * 1.2)
+                    
+                    # 2. الانضغاط السعري الشديد (الهدوء الذي يسبق العاصفة)
+                    range_20 = df["high"].rolling(20).max() - df["low"].rolling(20).min()
+                    squeeze_pct = range_20.iloc[-1] / price
+                    super_squeeze = squeeze_pct < 0.04 # نطاق تذبذب ضيق جداً (أقل من 4%)
+                    
+                    # 3. التحضير للاختراق: السعر يطرق باب القمة (قريب منها بـ 2% فقط)
+                    recent_high = df["high"].rolling(20).max().iloc[-2]
+                    distance_to_high = (recent_high - price) / price
+                    pre_breakout = 0 < distance_to_high < 0.02
+
+                    # الفلتر القاتل للحركات الوهمية
+                    fake_move = (high - low) / price > 0.35
+                    if fake_move: continue
+
+                    # -----------------
+                    # 🎯 1H BASE SCORING (نظام التقييم الاستباقي)
+                    # -----------------
+                    base_score = 0
+                    
+                    # نكافئ الـ RSI اللي بدأ يصحى من القاع (مرحلة التجميع)
+                    if 40 <= last_rsi <= 55: base_score += 15
+                    elif 55 < last_rsi <= 65: base_score += 10 # الزخم بدأ يرتفع
+                    
+                    if last_macd_diff > 0:
+                        base_score += 10
+                        if last_macd_diff > 0.002: base_score += 5
+                    
+                    if trend_up: base_score += 10
+                    
+                    # مكافآت التنبؤ قبل الانفجار (السر هنا)
+                    if silent_accumulation: base_score += 20
+                    if super_squeeze: base_score += 15
+                    if pre_breakout: base_score += 20 # السعر يطرق باب الانفجار
+                    
+                    if not silent_accumulation and not trend_up: base_score -= 15
+                    if last_rsi < 35: base_score -= 10
+
+                    # ----------------------------------------------------
+                    # 🚀 SUPER RADAR: Multi-Timeframe & Orderbook Funnel
+                    # ----------------------------------------------------
+                    score = base_score
+                    if score >= 45: 
+                        if is_btc_bullish: score += 10
+                        else: score -= 5 
+
+                        # فريم 15 دقيقة لتأكيد نقطة الدخول اللحظية
+                        candles_15m = await get_candles_gate(f"{symbol}_USDT", "15m", limit=30)
+                        if candles_15m:
+                            df_15m = pd.DataFrame(candles_15m).iloc[:, :6]
+                            df_15m.columns = ["timestamp", "volume", "close", "high", "low", "open"]
+                            for col in ["close","volume","open"]: df_15m[col] = pd.to_numeric(df_15m[col], errors='coerce')
+                            
+                            vol_15m_avg = df_15m["volume"].rolling(10).mean().iloc[-1]
+                            if df_15m["volume"].iloc[-1] > (vol_15m_avg * 1.5): score += 10
+                            if df_15m["close"].iloc[-1] > df_15m["open"].iloc[-1]: score += 5
+
+                        # دفتر الأوامر (السيولة المخفية اللي بتأكد التجميع)
+                        buy_pressure = await get_orderbook_pressure(client, symbol)
+                        if buy_pressure > 2.0: score += 20 
+                        elif buy_pressure > 1.3: score += 10
+
+                    # 🔒 Clamp 
+                    score = max(0, min(score, 100))
+
+                    if score > best_score:
+                        best_score = score
+                        best_coin = c
+                        best_meta = {
+                            "symbol": symbol,
+                            "price": price
+                        }
+
+                    await asyncio.sleep(0.15)
 
                 # -----------------
-                # 🔒 Clamp & Elite Filter
+                # الإرسال للأدمن والانتظار
                 # -----------------
-                score = max(0, min(score, 100))
+                if not best_coin or best_score < 65:
+                    print(f"😴 لم يجد الرادار فرصة تجميع قوية. إعادة المحاولة بعد 15 ثانية...")
+                    await asyncio.sleep(15)
+                    continue
 
-                if score >= 90:
-                    if not (volume_spike and breakout and trend_up):
-                        score = 85
+                if best_score >= 90:
+                    signal = "💣 SMART MONEY"
+                elif best_score >= 80:
+                    signal = "🚀 STRONG BREAKOUT"
+                elif best_score >= 70:
+                    signal = "🎯 HIGH PROBABILITY"
+                else:
+                    signal = "⚡ EARLY SETUP"
 
-                # -----------------
-                # اختيار الأفضل
-                # -----------------
-                if score > best_score:
-                    best_score = score
-                    best_coin = c
-                    best_meta = {
-                        "symbol": symbol,
-                        "price": price
-                    }
+                symbol = best_meta["symbol"]
+                price = best_meta["price"]
 
-                await asyncio.sleep(0.15)
+                insight_ar = await ask_groq(
+                    f"اشرح باختصار سبب احتمال صعود {symbol} مبرزاً علامات التجميع والانضغاط قبل الاختراق. سطرين فقط.",
+                    lang="ar"
+                )
 
-            # -----------------
-            # فلترة نهائية وتجهيز الإرسال
-            # -----------------
-            if not best_coin or best_score < 60:
-                print("Radar: No strong setup.")
-                return
+                insight_en = await ask_groq(
+                    f"Explain briefly why {symbol} is accumulating and preparing for a breakout soon. 2 lines.",
+                    lang="en"
+                )
 
-            if best_score >= 90:
-                signal = "💣 SMART MONEY"
-            elif best_score >= 80:
-                signal = "🚀 STRONG BREAKOUT"
-            elif best_score >= 70:
-                signal = "🎯 HIGH PROBABILITY"
-            else:
-                signal = "⚡ EARLY SETUP"
+                signal_id = str(uuid.uuid4())[:8] 
+                radar_pending_approvals[signal_id] = {
+                    "symbol": symbol,
+                    "price": price,
+                    "signal": signal,
+                    "score": best_score,
+                    "insight_ar": insight_ar,
+                    "insight_en": insight_en
+                }
 
-            symbol = best_meta["symbol"]
-            price = best_meta["price"]
+                admin_kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="✅ موافقة ونشر للمشتركين", callback_data=f"rad_app_{signal_id}")],
+                    [InlineKeyboardButton(text="❌ إلغاء وتجاهل", callback_data=f"rad_rej_{signal_id}")]
+                ])
 
-            insight_ar = await ask_groq(
-                f"اشرح باختصار سبب احتمال صعود {symbol} بسبب الفوليوم والتجميع والاختراق. سطرين فقط.",
-                lang="ar"
-            )
+                admin_text = (
+                    f"⚠️ <b>تنبيه أدمن: رادار استباقي جديد 🔥</b>\n"
+                    f"━━━━━━━━━━━━━━\n"
+                    f"العملة: #{symbol}\n"
+                    f"السعر: ${format_price(price)}\n"
+                    f"الإشارة: {signal}\n"
+                    f"السكور: {best_score}/100\n\n"
+                    f"📝 <b>التحليل (عربي):</b>\n{insight_ar}\n\n"
+                    f"📝 <b>التحليل (إنجليزي):</b>\n{insight_en}\n"
+                    f"━━━━━━━━━━━━━━\n"
+                    f"هل تريد الموافقة على نشرها؟"
+                )
 
-            insight_en = await ask_groq(
-                f"Explain briefly why {symbol} may pump based on volume, accumulation and breakout. 2 lines.",
-                lang="en"
-            )
+                try:
+                    await bot.send_message(ADMIN_USER_ID, admin_text, reply_markup=admin_kb, parse_mode=ParseMode.HTML)
+                    print(f"✅ تم اصطياد {symbol} وإرسالها للأدمن! استراحة 3 دقائق...")
+                    await asyncio.sleep(49999) # ينام 3 دقائق بعد الإرسال عشان ما يزعجك بنفس العملة
+                except Exception as e:
+                    print(f"Failed to send approval to admin: {e}")
 
-            # --- إرسال الإشعارات للمستخدمين (نفس نصوصك تماماً) ---
-            # --- إرسال الإشعارات للمستخدمين ---
-                        # --- إرسال الإشارة للأدمن للموافقة ---
-            signal_id = str(uuid.uuid4())[:8] # إنشاء معرف فريد للإشارة
-            radar_pending_approvals[signal_id] = {
-                "symbol": symbol,
-                "price": price,
-                "signal": signal,
-                "score": best_score,
-                "insight_ar": insight_ar,
-                "insight_en": insight_en
-            }
-
-            admin_kb = InlineKeyboardMarkup(inline_keyboard=[
-                [
-                    InlineKeyboardButton(text="✅ موافقة ونشر للمشتركين", callback_data=f"rad_app_{signal_id}")
-                ],
-                [
-                    InlineKeyboardButton(text="❌ إلغاء وتجاهل", callback_data=f"rad_rej_{signal_id}")
-                ]
-            ])
-
-            admin_text = (
-                f"⚠️ <b>تنبيه أدمن: رادار جديد ينتظر موافقتك</b>\n"
-                f"━━━━━━━━━━━━━━\n"
-                f"العملة: #{symbol}\n"
-                f"السعر: ${format_price(price)}\n"
-                f"الإشارة: {signal}\n"
-                f"السكور: {best_score}/100\n\n"
-                f"📝 <b>التحليل (عربي):</b>\n{insight_ar}\n\n"
-                f"📝 <b>التحليل (إنجليزي):</b>\n{insight_en}\n"
-                f"━━━━━━━━━━━━━━\n"
-                f"هل تريد الموافقة على نشرها؟"
-            )
-
-            try:
-                await bot.send_message(ADMIN_USER_ID, admin_text, reply_markup=admin_kb, parse_mode=ParseMode.HTML)
-            except Exception as e:
-                print(f"Failed to send approval to admin: {e}")
-
-    except Exception as e:
-        print(f"Radar Error: {e}")
+        except Exception as e:
+            print(f"Radar Error: {e}")
+            await asyncio.sleep(15)
 
         # تم تصحيح وقت الانتظار ليكون 6 ساعات بالضبط (6 * 60 * 60)
   # 6 ساعات # انتطار الدورة القادمة
@@ -503,7 +536,7 @@ async def ask_groq(prompt, lang="ar"):
     return "⚠️ Error generating analysis. Server is highly loaded."
 
 # --- الأوامر ---
-# --- أزرار موافقة الأدمن على الرادار ---
+# --- أزرار موافقة الأدمن على الرادار ---# --- أزرار موافقة الأدمن على الرادار ---
 @dp.callback_query(F.data.startswith("rad_app_"))
 async def approve_radar_signal(cb: types.CallbackQuery):
     if cb.from_user.id != ADMIN_USER_ID:
@@ -518,12 +551,20 @@ async def approve_radar_signal(cb: types.CallbackQuery):
     await cb.message.edit_text(f"✅ تمت الموافقة! جاري إرسال إشارة {data['symbol']} لجميع المستخدمين...")
 
     pool = dp['db_pool']
-    users = await pool.fetch("SELECT user_id, lang FROM users_info") # إرسال لجميع القاعدة
+    
+    # 🛡️ استعلام واحد يجلب الجميع مع حالة اشتراكهم لعدم تدمير قاعدة البيانات
+    async with pool.acquire() as conn:
+        users = await conn.fetch("""
+            SELECT u.user_id, u.lang, 
+                   CASE WHEN p.expiry_date > CURRENT_TIMESTAMP THEN true ELSE false END as is_paid
+            FROM users_info u
+            LEFT JOIN paid_users p ON u.user_id = p.user_id
+        """)
 
     for row in users:
         uid = row["user_id"]
         lang = row["lang"] or "ar"
-        paid = await is_user_paid(pool, uid)
+        paid = row["is_paid"] # أخذنا الحالة بدون ما نكلم الداتابيز مرة ثانية!
 
         # ---------- VIP ----------
         if paid:
@@ -588,12 +629,12 @@ async def approve_radar_signal(cb: types.CallbackQuery):
                 reply_markup=None if paid else get_payment_kb(lang)
             )
             await asyncio.sleep(0.05)
-        except:
+        except Exception as e:
+            print(f"Failed to send to {uid}: {e}")
             continue
             
     # مسح الإشارة من الذاكرة بعد نشرها
     del radar_pending_approvals[signal_id]
-
 
 @dp.callback_query(F.data.startswith("rad_rej_"))
 async def reject_radar_signal(cb: types.CallbackQuery):
@@ -723,25 +764,22 @@ async def send_photo_to_trials(m: types.Message):
 @dp.message(Command("status"))
 async def status_cmd(m: types.Message):
     pool = dp['db_pool']
-    
-    # 1. إجمالي المستخدمين
-    total = await pool.fetchval("SELECT count(*) FROM users_info")
-    # 2. إجمالي المشتركين VIP
-    vips = await pool.fetchval("SELECT count(*) FROM paid_users")
-    # 3. إجمالي الذين استخدموا التجربة المجانية (الموجودين في جدول trial_users)
-    total_trials = await pool.fetchval("SELECT count(*) FROM trial_users")
-    # 4. النشطين اليوم (الذين أرسلوا رسائل اليوم)
-    active_today = await pool.fetchval("SELECT count(*) FROM users_info WHERE last_active = CURRENT_DATE")
-    
-    msg = (f"📊 **إحصائيات البوت المتقدمة:**\n"
-           f"───────────────────\n"
-           f"👥 **إجمالي القاعدة:** `{total}` مستخدم\n"
-           f"🔥 **النشاط اليومي:** `{active_today}` مستخدم نشط\n"
-           f"🎁 **مستخدمي التجربة:** `{total_trials}` شخص\n"
-           f"💎 **المشتركين VIP:** `{vips}` مشترك")
-    
-    await m.answer(msg, parse_mode=ParseMode.MARKDOWN)
-
+    try:
+        async with pool.acquire() as conn:
+            total = await conn.fetchval("SELECT count(*) FROM users_info")
+            vips = await conn.fetchval("SELECT count(*) FROM paid_users")
+            total_trials = await conn.fetchval("SELECT count(*) FROM trial_users")
+            active_today = await conn.fetchval("SELECT count(*) FROM users_info WHERE last_active = CURRENT_DATE")
+        
+        msg = (f"📊 **إحصائيات البوت المتقدمة:**\n"
+               f"───────────────────\n"
+               f"👥 **إجمالي القاعدة:** `{total}` مستخدم\n"
+               f"🔥 **النشاط اليومي:** `{active_today}` مستخدم نشط\n"
+               f"🎁 **مستخدمي التجربة:** `{total_trials}` شخص\n"
+               f"💎 **المشتركين VIP:** `{vips}` مشترك")
+        await m.answer(msg, parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        print(f"Status Error: {e}")
     
 @dp.message(Command("admin"))
 async def admin_cmd(m: types.Message):
@@ -885,23 +923,37 @@ async def handle_symbol(m: types.Message):
     uid = m.from_user.id
     pool = dp['db_pool']
 
-    async with pool.acquire() as conn:
-        await conn.execute("""
-            INSERT INTO users_info (user_id, last_active)
-            VALUES ($1, CURRENT_DATE)
-            ON CONFLICT (user_id)
-            DO UPDATE SET last_active = CURRENT_DATE
-        """, uid)
+    # 🛡️ فتح اتصال واحد محمي لكل العمليات لتجنب انقطاع Neon
+    try:
+        async with pool.acquire() as conn:
+            # 1. تحديث تاريخ الظهور
+            await conn.execute("""
+                INSERT INTO users_info (user_id, last_active)
+                VALUES ($1, CURRENT_DATE)
+                ON CONFLICT (user_id)
+                DO UPDATE SET last_active = CURRENT_DATE
+            """, uid)
 
-    user = await pool.fetchrow("SELECT lang FROM users_info WHERE user_id = $1", uid)
-    lang = user['lang'] if user else "ar"
-    
-    if not (await is_user_paid(pool, uid)) and not (await has_trial(pool, uid)):
+            # 2. جلب لغة المستخدم
+            user = await conn.fetchrow("SELECT lang FROM users_info WHERE user_id = $1", uid)
+            lang = user['lang'] if user and user['lang'] else "ar"
+            
+            # 3 و 4. فحص الاشتراك والتجربة (نمرر conn بدلاً من pool للحفاظ على نفس الاتصال)
+            paid = await is_user_paid(conn, uid)
+            trial = await has_trial(conn, uid)
+            
+    except Exception as e:
+        print(f"DB Error in handle_symbol: {e}")
+        return await m.answer("⚠️ حدث خطأ في الاتصال بقاعدة البيانات. يرجى المحاولة مرة أخرى.")
+
+    # فحص النتيجة ومنع المستخدم إذا انتهت تجربته
+    if not paid and not trial:
         return await m.answer(
-            "⚠️ انتهت تجربتك المجانية. للوصول الكامل، يرجى الاشتراك مقابل 10 USDT أو 1500 ⭐ شهرياً." if lang=="ar" 
+            "⚠️ انتهت تجربتك المجانية. للوصول الكامل، يرجى الاشتراك مقابل 10 USDT أو 500 ⭐ شهرياً." if lang=="ar" 
             else "⚠️ Your free trial has ended. For full access, please subscribe for a Monthly fee of 10 USDT or 500 ⭐.", 
             reply_markup=get_payment_kb(lang)
         )
+
     
     user_sym = m.text.strip().upper()
     symbol_map = {"XAU": "PAXG", "GOLD": "PAXG"}
@@ -926,6 +978,7 @@ async def handle_symbol(m: types.Message):
                 volume_24h = float(data_gate[0].get("quote_volume", 0))
 
                 # محاولة جلب الفوليوم الأدق من CMC
+                                # محاولة جلب الفوليوم الأدق من CMC
                 try:
                     res_cmc = await client.get(
                         f"https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol={sym}",
@@ -934,10 +987,22 @@ async def handle_symbol(m: types.Message):
                     )
                     data_cmc = res_cmc.json()
                     if res_cmc.status_code == 200 and sym in data_cmc.get("data", {}):
-                        # إذا نجح، استبدل فوليوم Gate.io بفوليوم CMC الكلي
-                        volume_24h = float(data_cmc["data"][sym]["quote"]["USD"]["volume_24h"])
-                except:
-                    pass # إذا فشل CMC، سيبقى الفوليوم محتفظاً بقيمة Gate.io ولن يصبح 0
+                        quote_data = data_cmc["data"][sym]["quote"]["USD"]
+                        # الفوليوم الكلي
+                        volume_24h = float(quote_data["volume_24h"])
+                        # نسبة تغير الفوليوم (مهم جداً لكشف الحيتان)
+                        vol_change_cmc = float(quote_data.get("volume_change_24h", 0))
+                        
+                        # 🔥 تحديث قاعدة البيانات فوراً بنسبة تغير الفوليوم
+                        async with pool.acquire() as conn:
+                            await conn.execute("""
+                                INSERT INTO market_memory (symbol, volume_change, last_updated)
+                                VALUES ($1, $2, CURRENT_TIMESTAMP)
+                                ON CONFLICT (symbol) DO UPDATE 
+                                SET volume_change = EXCLUDED.volume_change, last_updated = CURRENT_TIMESTAMP
+                            """, sym, f"{vol_change_cmc:.1f}%")
+                except Exception as e:
+                    print(f"CMC Fetch Error: {e}")
 
                 user_session_data[uid] = {
                     "sym": sym, "price": price, "volume_24h": volume_24h, 
@@ -995,6 +1060,145 @@ async def get_candles_gate(symbol: str, interval: str, limit: int = 250):
         return None
 
 # --- حساب المؤشرات ---
+# ===== SMART INDICATORS =====
+
+def compute_volume_delta(df):
+    buy_vol = df[df["close"] > df["open"]]["volume"].sum()
+    sell_vol = df[df["close"] < df["open"]]["volume"].sum()
+    return buy_vol - sell_vol
+
+def detect_candle_strength(df):
+    last = df.iloc[-1]
+
+    body = abs(last["close"] - last["open"])
+    upper_wick = last["high"] - max(last["open"], last["close"])
+    lower_wick = min(last["open"], last["close"]) - last["low"]
+
+    score = 0
+
+    if lower_wick > body * 2:
+        score += 10  # تجميع
+
+    if upper_wick > body * 2:
+        score -= 10  # تصريف
+
+    return score
+
+def detect_volatility(df):
+    atr = (df["high"] - df["low"]).rolling(14).mean()
+    current_atr = atr.iloc[-1]
+    avg_atr = atr.mean()
+
+    if current_atr < avg_atr * 0.7:
+        return 10
+    return 0
+
+def compute_momentum(df):
+    momentum = df["close"].diff()
+    acceleration = momentum.diff()
+
+    if acceleration.iloc[-1] > 0:
+        return 10
+    return -5
+
+def detect_fake_breakout(df):
+    recent_high = df["high"].rolling(20).max().iloc[-2]
+    last = df.iloc[-1]
+
+    if last["high"] > recent_high and last["close"] < recent_high:
+        return -20
+    return 0
+import numpy as np # تأكد من إضافتها في الأعلى
+
+def calculate_smart_trend_and_targets(df, current_price, db_vol_change):
+    # 1. حساب الـ ATR
+    df['prev_close'] = df['close'].shift(1)
+    df['tr0'] = abs(df['high'] - df['low'])
+    df['tr1'] = abs(df['high'] - df['prev_close'])
+    df['tr2'] = abs(df['low'] - df['prev_close'])
+    df['tr'] = df[['tr0', 'tr1', 'tr2']].max(axis=1)
+    atr = df['tr'].rolling(14).mean().iloc[-1]
+
+    if pd.isna(atr) or atr == 0:
+        atr = current_price * 0.02 
+
+    max_atr = current_price * 0.10
+    atr = min(atr, max_atr)
+
+    # 2. تحديد الاتجاه
+    ema20 = df['close'].ewm(span=20, adjust=False).mean().iloc[-1]
+    ema50 = df['close'].ewm(span=50, adjust=False).mean().iloc[-1]
+
+    if ema20 >= ema50:
+        trend_direction = "Bullish"
+    else:
+        trend_direction = "Bearish"
+
+    distance_pct = abs(current_price - ema50) / ema50 * 100
+    
+    # 🔥 3. كشف نوايا الحيتان بناءً على دمج الاتجاه مع الفوليوم التراكمي
+    market_action = "حركة طبيعية" 
+    
+    if trend_direction == "Bearish" and distance_pct < 4 and db_vol_change > 60:
+        market_action = "تجميع حيتان مخفي (Accumulation)"
+    elif trend_direction == "Bullish" and distance_pct > 6 and db_vol_change > 100:
+        market_action = "خطر تصريف قمم (Distribution)"
+    elif trend_direction == "Bullish" and db_vol_change < 20:
+        market_action = "اختراق كاذب أو ضعيف (Fakeout)"
+    elif trend_direction == "Bullish" and db_vol_change >= 40:
+        market_action = "اختراق حقيقي مدعوم بسيولة"
+    elif trend_direction == "Bearish" and db_vol_change > 60:
+        market_action = "بيع هلع أو هبوط قوي (Panic Sell)"
+
+    # تحديد قوة الاتجاه
+    if "Fakeout" not in market_action:
+        if distance_pct >= 8:
+            trend_strength = "قوي"
+            adx_dummy = 45.0
+        elif distance_pct >= 4:
+            trend_strength = "جيد"
+            adx_dummy = 30.0
+        elif distance_pct >= 1.5:
+            trend_strength = "متوسط"
+            adx_dummy = 20.0
+        else:
+            trend_strength = "ضعيف"
+            adx_dummy = 12.0
+    else:
+        trend_strength = "ضعيف"
+        adx_dummy = 15.0
+
+    # 4. حساب الأهداف
+    min_allowed_price = current_price * 0.000001 
+
+    if trend_direction == "Bearish":
+        sl = current_price + (atr * 1.5)
+        tp1 = current_price - (atr * 1.5)
+        tp2 = current_price - (atr * 2.5)
+        tp3 = current_price - (atr * 3.5)
+        
+        sl = max(current_price * 1.005, sl) 
+        tp1 = min(current_price * 0.995, max(min_allowed_price, tp1)) 
+        tp2 = min(tp1 * 0.995, max(min_allowed_price, tp2)) 
+        tp3 = min(tp2 * 0.995, max(min_allowed_price, tp3)) 
+    else:
+        sl = current_price - (atr * 1.5)
+        tp1 = current_price + (atr * 1.5)
+        tp2 = current_price + (atr * 2.5)
+        tp3 = current_price + (atr * 3.5)
+        
+        sl = max(min_allowed_price, sl) 
+        tp1 = max(current_price * 1.005, tp1) 
+        tp2 = max(tp1 * 1.005, tp2) 
+        tp3 = max(tp2 * 1.005, tp3) 
+
+    support = df['low'].rolling(20).min().iloc[-1]
+    resistance = df['high'].rolling(20).max().iloc[-1]
+
+    return trend_direction, trend_strength, market_action, adx_dummy, sl, tp1, tp2, tp3, support, resistance
+
+
+
 def compute_indicators(candles):
     df = pd.DataFrame(candles)
     df = df.iloc[:, :6] 
@@ -1034,6 +1238,7 @@ def compute_indicators(candles):
     return last_rsi, last_macd_diff, last_bb, last_vol, high_price, low_price
 
 # --- دالة التحليل المعدلة ---
+# --- دالة التحليل المعدلة ---
 @dp.callback_query(F.data.startswith("tf_"))
 async def run_analysis(cb: types.CallbackQuery):
     uid, pool = cb.from_user.id, dp['db_pool']
@@ -1054,7 +1259,13 @@ async def run_analysis(cb: types.CallbackQuery):
             reply_markup=get_payment_kb(lang)
         )
 
-    await cb.message.edit_text("🤖 جاري التحليل..." if lang=="ar" else "🤖 Analyzing...")
+    try:
+        await cb.message.edit_text("🤖 جاري التحليل..." if lang=="ar" else "🤖 Analyzing...")
+    except Exception as e:
+        if "message is not modified" in str(e):
+            pass  
+        else:
+            print(f"Edit msg error in analysis: {e}")
 
     clean_sym = sym.replace("USDT", "").strip().upper()
     is_dex = data.get('is_dex', False)
@@ -1068,129 +1279,131 @@ async def run_analysis(cb: types.CallbackQuery):
         gate_interval = {"4h":"4h", "daily":"1d", "weekly":"1w"}.get(tf, "4h")
         candles = await get_candles_gate(f"{clean_sym}_USDT", gate_interval, limit=250)
 
+    # ✅ بداية الإصلاح: إدخال الكود داخل الدالة بالمسافات الصحيحة
+        # (داخل دالة run_analysis بعد تحويل df من الشموع)
     if candles:
-        last_rsi, last_macd, last_bb, last_vol, high, low = compute_indicators(candles)
-    else:
-        last_rsi, last_macd, last_bb, last_vol, high, low = 50.0, 0.0, (price, price*0.95, price*1.05), 0.0, price*1.05, price*0.95
+        last_rsi, last_macd, last_bb, last_vol, _, _ = compute_indicators(candles) 
         
-    price_fmt = format_price(price)
-    low_fmt = format_price(low)
-    high_fmt = format_price(high)
-    bb0_fmt = format_price(last_bb[0])
-    bb1_fmt = format_price(last_bb[1])
-    bb2_fmt = format_price(last_bb[2])
+        import pandas as pd 
+        df = pd.DataFrame(candles)
+        df = df.iloc[:, :6]
+        df.columns = ["timestamp", "volume", "close", "high", "low", "open"]
+
+        for col in ["close", "high", "low", "open", "volume"]:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+
+        # 🔥 سحب الفوليوم من قاعدة البيانات
+        db_vol_float = 0.0
+        try:
+            async with pool.acquire() as conn:
+                db_mem = await conn.fetchrow("SELECT volume_change FROM market_memory WHERE symbol = $1", clean_sym)
+                if db_mem and db_mem['volume_change']:
+                    vol_str = db_mem['volume_change'].replace('%', '').strip()
+                    db_vol_float = float(vol_str)
+        except Exception as e:
+            print(f"Failed to fetch market_memory for {clean_sym}: {e}")
+
+        # تمرير قيمة الفوليوم للدالة الذكية
+        trend_dir, trend_str, market_action, adx_val, calc_sl, calc_tp1, calc_tp2, calc_tp3, calc_sup, calc_res = calculate_smart_trend_and_targets(df, price, db_vol_float)
+        
+        if lang == "ar":
+            real_trend = "صاعد" if trend_dir == "Bullish" else "هابط"
+            trend_strength = trend_str
+        else:
+            real_trend = trend_dir
+            trend_strength_en = {"قوي جداً": "Very Strong", "قوي": "Strong", "جيد": "Good", "متوسط": "Moderate", "ضعيف": "Weak", "ضعيف ومخادع": "Weak & Fake"}
+            trend_strength = trend_strength_en.get(trend_str, trend_str)
+
+    else:
+        real_trend, trend_strength, market_action = ("غير معروف", "غير معروف", "لا توجد بيانات")
+        calc_sl, calc_tp1, calc_tp2, calc_tp3, calc_sup, calc_res = (price*0.9, price*1.05, price*1.1, price*1.15, price*0.95, price*1.05)
+        adx_val = 0.0 
+
     macd_fmt = format_price(last_macd) if last_macd is not None else "0.0"
     safe_rsi = f"{last_rsi:.2f}" if last_rsi is not None else "N/A"
-    vol24_fmt = format_price(volume_24h)
 
+    # 🔥 تحديث البرومبت ليشمل الـ market_action
     if lang == "ar":
         prompt = f"""
-أنت محلل فني خبير في شركة "NaiF CHarT". حلل عملة {clean_sym} بناءً على البيانات التالية:
-السعر الحالي: {price_fmt}$ | الإطار: {tf} | RSI: {safe_rsi} | MACD: {macd_fmt} ({"صاعد" if (last_macd or 0)>0 else "هابط"})
-البولينجر: السعر {bb0_fmt} (نطاق {bb1_fmt} - {bb2_fmt}) | الفوليوم: {vol24_fmt}
+أنت محلل فني خبير في شركة "NaiF CHarT". قم بصياغة هذا التحليل لعملة {clean_sym} بشكل احترافي ومختصر.
+البيانات محسوبة رياضياً وجاهزة، ⚠️ يمنع منعاً باتاً تغيير أرقام الأهداف أو الوقف ⚠️، فقط قم بترتيبها في القالب المطلوب واكتب تعليقاً فنياً دقيقاً في سطر واحد لكل مؤشر.
 
-⚠️ الالتزام التام بهذا التنسيق (استخدم وسوم HTML فقط):
-⚠️ قواعد صارمة:
+⚠️ التزم بهذا القالب بحذافيره (استخدم HTML فقط):
 
-إذا كان الاتجاه "صاعد":
-- يجب أن تكون TP1 و TP2 و TP3 أعلى من السعر الحالي
-
-إذا كان الاتجاه "هابط":
-- يجب أن تكون TP1 و TP2 و TP3 أقل من السعر الحالي
-
-📊 <b>التحليل العام</b>
-الاتجاه: (اكتب صاعد أو هابط)
+📊 <b>التحليل لـ {clean_sym}</b> | {tf} | {format_price(price)}$
+الاتجاه: {real_trend} ({trend_strength})
 
 📉 <b>الدعم والمقاومة</b>
-الدعم الأقرب: {low_fmt} دولار
-المقاومة الأقرب: {high_fmt} دولار
+الدعم الأقرب: <code>{format_price(calc_sup)}</code>$
+المقاومة الأقرب: <code>{format_price(calc_res)}</code>$
 
-🎯 <b>الأهداف السعرية</b>
-TP1: (ضع رقم منطقي)
-TP2: (ضع رقم منطقي)
-TP3: (ضع رقم منطقي)
+🎯 <b>الأهداف السعرية (TP)</b>
+TP1: <code>{format_price(calc_tp1)}</code>
+TP2: <code>{format_price(calc_tp2)}</code>
+TP3: <code>{format_price(calc_tp3)}</code>
 
-🛑 <b>وقف الخسارة</b>
-Stop Loss: (ضع رقم منطقي)
+🛑 <b>وقف الخسارة (SL)</b>
+Stop Loss: <code>{format_price(calc_sl)}</code>
 
 📈 <b>تحليل المؤشرات</b>
-- RSI: {safe_rsi} (اكتب القيمةواشرح باختصار شديد سطر واحد)
-- MACD: {macd_fmt} (اكتب القيمة واشرح باختصار شديد سطر واحد)
-- Bollinger Bands: (اشرح باختصار شديد سطر واحد)
-- Volume: {vol24_fmt} (اكتب القيمة واشرح باختصار شديد سطر واحد)
-
-**ملاحظة: لا تكتب مقدمات ولا جرايد، خليك محدد ومختصر ومرتب.**
+• Liquidity: {market_action} (اكتب سطر يعلق على هذه الحالة)
+• RSI ({safe_rsi}): (اكتب سطر واحد يوضح التشبع أو الحياد)
+• MACD ({macd_fmt}): (اكتب سطر واحد يوضح الزخم)
+• ADX ({adx_val:.1f}): (اكتب سطر واحد يوضح قوة الترند)
 """
     else:
         prompt = f"""
-You are an expert Technical Analyst at "NaiF CHarT". Analyze {clean_sym} based on:
-Price: {price_fmt}$ | Timeframe: {tf} | RSI: {safe_rsi} | MACD: {macd_fmt} ({"Bullish" if (last_macd or 0)>0 else "Bearish"})
-Bollinger: {bb0_fmt} (Range {bb1_fmt}-{bb2_fmt}) | Volume: {vol24_fmt}
+You are an expert Technical Analyst at "NaiF CHarT". Format this analysis for {clean_sym} professionally and concisely.
+The data is calculated mathematically and is completely ready. ⚠️ STRICT RULE: DO NOT change the TP or SL numbers ⚠️. Just arrange them in the required template and write a precise technical comment in one short line for each indicator.
 
-⚠️ Strictly follow this HTML format:
-Strict rule:
+⚠️ Strictly follow this template (Use HTML only):
 
-If Trend = Bullish
-TP targets MUST be above current price.
+📊 <b>Analysis: {clean_sym}</b> | {tf} | {format_price(price)}$
+Trend: {real_trend} ({trend_strength})
 
-If Trend = Bearish
-TP targets MUST be below current price.
+📉 <b>Support & Resistance</b>
+Nearest Support: <code>{format_price(calc_sup)}</code>$
+Nearest Resistance: <code>{format_price(calc_res)}</code>$
 
-<b>📊 Market Overview</b>
-Trend: (Bullish/Bearish)
+🎯 <b>Price Targets (TP)</b>
+TP1: <code>{format_price(calc_tp1)}</code>
+TP2: <code>{format_price(calc_tp2)}</code>
+TP3: <code>{format_price(calc_tp3)}</code>
 
-<b>📉 Support & Resistance</b>
-Nearest Support: <code>{low_fmt}</code> $Nearest Resistance: <code>{high_fmt}</code>$
+🛑 <b>Stop Loss (SL)</b>
+Stop Loss: <code>{format_price(calc_sl)}</code>
 
-<b>🎯 Price Targets</b>
-TP1: <code>(Price)</code>
-TP2: <code>(Price)</code>
-TP3: <code>(Price)</code>
-
-<b>🛑 Stop Loss</b>
-Stop Loss: <code>(Price)</code>
-
-<b>📈 Indicator Analysis</b>
-• RSI: {safe_rsi} (value and One short sentence)
-• MACD: {macd_fmt} (value and One short sentence)
-• Bollinger Bands: (One short sentence)
-• Volume: {vol24_fmt} (value and One short sentence)
-
-<b>Note: No intro/outro, strictly follow the headers above.</b>
+📈 <b>Indicator Analysis</b>
+• Liquidity: {market_action} (Write one line commenting on this action)
+• RSI ({safe_rsi}): (Write one line explaining overbought/oversold or neutrality)
+• MACD ({macd_fmt}): (Write one line explaining momentum)
+• ADX ({adx_val:.1f}): (Write one line explaining trend strength)
 """
+
 
     res = await ask_groq(prompt, lang=lang)
     await cb.message.answer(res, parse_mode=ParseMode.HTML)
     
     if not (await is_user_paid(pool, uid)):
         async with pool.acquire() as conn:
-            # إضافة المستخدم لجدول التجربة المجانية ومعرفة هل هو إدخال جديد
             res = await conn.execute("INSERT INTO trial_users (user_id) VALUES ($1) ON CONFLICT DO NOTHING", uid)
             
-            # إذا كان المستخدم يستهلك التجربة لأول مرة
-                        # إذا كان المستخدم يستهلك التجربة لأول مرة
             if "INSERT 0 1" in res:
-                # نبحث هل هناك شخص قام بدعوته؟
                 inviter = await conn.fetchrow("SELECT invited_by FROM users_info WHERE user_id = $1", uid)
                 if inviter and inviter['invited_by']:
                     inviter_id = inviter['invited_by']
                     
-                    # زيادة نقاط المستدعي
                     await conn.execute("UPDATE users_info SET ref_count = COALESCE(ref_count, 0) + 1 WHERE user_id = $1", inviter_id)
                     current_count = await conn.fetchval("SELECT ref_count FROM users_info WHERE user_id = $1", inviter_id)
                     
-                    # 🌐 جلب لغة المستدعي لتحديد لغة الرسالة
                     inviter_lang_row = await conn.fetchrow("SELECT lang FROM users_info WHERE user_id = $1", inviter_id)
                     inv_lang = inviter_lang_row['lang'] if inviter_lang_row and inviter_lang_row['lang'] else "ar"
                     
                     try:
-                        # إذا لم يصل للـ 10، نرسل له تنبيه تشجيعي
                         if current_count < 10:
                             msg_ar = f"🎁 <b>نقطة جديدة!</b>\nصديقك استخدم التجربة المجانية.\nرصيدك الحالي: {current_count}/10 نقاط."
                             msg_en = f"🎁 <b>New Point!</b>\nYour friend used the free trial.\nCurrent balance: {current_count}/10 points."
                             await bot.send_message(inviter_id, msg_ar if inv_lang == "ar" else msg_en, parse_mode=ParseMode.HTML)
-                        
-                        # إذا وصل لـ 10، نفعل الشهر المجاني ونصفر العداد
                         else:
                             await extend_user_subscription(pool, inviter_id)
                             await conn.execute("UPDATE users_info SET ref_count = 0 WHERE user_id = $1", inviter_id)
@@ -1201,9 +1414,7 @@ Stop Loss: <code>(Price)</code>
                     except Exception as e:
                         print(f"Ref notification error: {e}")
 
-
         await cb.message.answer("⚠️ انتهت تجربتك المجانية. للوصول الكامل، يرجى الاشتراك مقابل 10 USDT أو 500 ⭐ شهرياً." if lang=="ar" else "⚠️ Your free trial has ended. For full access, please subscribe for a Monthly fee of 10 USDT or 500 ⭐.", reply_markup=get_payment_kb(lang))
-
 # --- الدفع الكريبتو ---
 @dp.callback_query(F.data == "pay_crypto")
 async def crypto_pay(cb: types.CallbackQuery):
@@ -1377,7 +1588,15 @@ async def on_startup(app):
         await conn.execute("CREATE TABLE IF NOT EXISTS users_info (user_id BIGINT PRIMARY KEY, lang TEXT, last_active DATE)")
         await conn.execute("CREATE TABLE IF NOT EXISTS paid_users (user_id BIGINT PRIMARY KEY, expiry_date TIMESTAMP)")
         await conn.execute("CREATE TABLE IF NOT EXISTS trial_users (user_id BIGINT PRIMARY KEY)")
-        
+           # 🔥 الجديد: إنشاء جدول الذاكرة للفوليوم
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS market_memory (
+                symbol TEXT PRIMARY KEY,
+                market_phase TEXT,
+                volume_change TEXT,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         # 2. إجبار تحديث الجداول القديمة (للمشتركين الحاليين)
         await conn.execute("ALTER TABLE users_info ADD COLUMN IF NOT EXISTS last_active DATE")
         await conn.execute("ALTER TABLE paid_users ADD COLUMN IF NOT EXISTS expiry_date TIMESTAMP")
@@ -1390,7 +1609,8 @@ async def on_startup(app):
             await conn.execute("INSERT INTO paid_users (user_id) VALUES ($1) ON CONFLICT DO NOTHING", uid)
 
     #asyncio.create_task(ai_opportunity_radar(pool))
-    asyncio.create_task(daily_channel_post())
+    #asyncio.create_task(daily_channel_post())
+    asyncio.create_task(update_market_memory_loop(pool)) # 🔥 تشغيل ذاكرة السوق
     await bot.set_webhook(f"{WEBHOOK_URL}/")
 
 
