@@ -40,7 +40,7 @@ BINANCE_HEADERS = {"X-MBX-APIKEY": BINANCE_API_KEY}
 GATE_API_KEY = "a3f6a57b42f6106011e6890049e57b2e"
 GATE_API_SECRET = "1ac18e0a690ce782f6854137908a6b16eb910cf02f5b95fa3c43b670758f79bc"
 GATE_BASE = "https://api.gateio.ws/api/v4/spot/candlesticks"
-BLACKLISTED_COINS = {"TOMO", "COCOS", "LRC", "BUSD", "TUSD", "USDC", "USDE", "XUSD"}
+BLACKLISTED_COINS = {"TOMO", "COCOS", "LRC", "BUSD", "TUSD", "USDC", "USDE", "BFUSD", "RLUSD", "POLY", "XUSD"}
 GROQ_KEYS_STR = os.getenv("GROQ_API_KEYS", "")
 GROQ_API_KEYS = [k.strip() for k in GROQ_KEYS_STR.split(",") if k.strip()]
 WEBHOOK_URL = os.getenv("WEBHOOK_URL") 
@@ -957,7 +957,6 @@ async def ai_opportunity_radar(pool):
     while True:
         try:
             print("🔍 جاري جلب 1000 عملة للبحث عن الجواهر المنسية...")
-            headers = {"X-CMC_PRO_API_KEY": CMC_KEY}
             STABLE_COINS = {"USDT","USDC","BUSD","DAI","TUSD","FDUSD"}
 
             async with pool.acquire() as conn:
@@ -1685,27 +1684,6 @@ async def handle_symbol(m: types.Message):
                 volume_24h = float(data_binance["quoteVolume"]) # الفوليوم بـ USDT
 
                 # محاولة جلب نسبة تغير الفوليوم من CMC
-                try:
-                    res_cmc = await client.get(
-                        f"https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol={sym}",
-                        headers={"X-CMC_PRO_API_KEY": CMC_KEY},
-                        timeout=5
-                    )
-                    data_cmc = res_cmc.json()
-                    if res_cmc.status_code == 200 and sym in data_cmc.get("data", {}):
-                        quote_data = data_cmc["data"][sym]["quote"]["USD"]
-                        vol_change_cmc = float(quote_data.get("volume_change_24h", 0))
-                        
-                        # تحديث قاعدة البيانات
-                        async with pool.acquire() as conn:
-                            await conn.execute("""
-                                INSERT INTO market_memory (symbol, volume_change, last_updated)
-                                VALUES ($1, $2, CURRENT_TIMESTAMP)
-                                ON CONFLICT (symbol) DO UPDATE 
-                                SET volume_change = EXCLUDED.volume_change, last_updated = CURRENT_TIMESTAMP
-                            """, sym, f"{vol_change_cmc:.1f}%")
-                except Exception as e:
-                    print(f"CMC Fetch Error: {e}")
 
                 user_session_data[uid] = {
                     "sym": sym, "price": price, "volume_24h": volume_24h, 
@@ -2197,16 +2175,20 @@ async def run_analysis(cb: types.CallbackQuery):
     # ... (كمل باقي الكود من هنا: سحب الفوليوم من الداتا بيز، وتعريف الـ prompt بدون ما تخليهم جوا if) ...
 
 
-        # 🔥 سحب الفوليوم من قاعدة البيانات        # 🔥 سحب الفوليوم من قاعدة البيانات
+        # 🔥 سحب الفوليوم من قاعدة البيانات        # 🔥 سحب الفوليوم من قاعدة البيانات        # 🔥 حساب تغير الفوليوم الحقيقي مباشرة من بيانات بايننس (أدق وأسرع من CMC)
         db_vol_float = 0.0
         try:
-            async with pool.acquire() as conn:
-                db_mem = await conn.fetchrow("SELECT volume_change FROM market_memory WHERE symbol = $1", clean_sym)
-                if db_mem and db_mem['volume_change']:
-                    vol_str = db_mem['volume_change'].replace('%', '').strip()
-                    db_vol_float = float(vol_str)
+            # مقارنة متوسط فوليوم آخر 5 شموع بمتوسط آخر 20 شمعة
+            avg_vol_20 = df["volume"].rolling(20).mean().iloc[-1]
+            avg_vol_5 = df["volume"].rolling(5).mean().iloc[-1]
+            
+            if avg_vol_20 > 0:
+                vol_ratio = avg_vol_5 / avg_vol_20
+                # تحويل النسبة إلى مئوية لتطابق خوارزمية البوت القديمة (مثال: إذا زاد النصف سيصبح 50%)
+                db_vol_float = (vol_ratio - 1) * 100 
         except Exception as e:
-            print(f"Failed to fetch market_memory for {clean_sym}: {e}")
+            db_vol_float = 0.0
+
 
         # 1. الحساب الكلاسيكي للترند والأهداف
         trend_dir, trend_str, market_action, adx_val, calc_sl, calc_tp1, calc_tp2, calc_tp3, calc_sup, calc_res = calculate_smart_trend_and_targets(df, price, db_vol_float, lang)
@@ -2234,7 +2216,7 @@ async def run_analysis(cb: types.CallbackQuery):
                         trend_str = "ضعيف - خطر الانعكاس" if lang == "ar" else "Weak - Reversal Risk"
                         market_action += " | فخ شرائي وتصريف مخفي" if lang == "ar" else " | Bull Trap & Hidden Distribution"
                     elif cvd_sig == "Micro_Silent_Accumulation" or buy_v > sell_v * 1.5:
-                        trend_str = "قوي جداً - دخول مؤسساتي" if lang == "ar" else "Very Strong - Inst. Inflow"
+                        trend_str = "قوي جداً" if lang == "ar" else "Very Strong"
                         
                     # المشتقات في حالة الصعود
                     if fut_sig == "Short_Squeeze":
@@ -2573,7 +2555,6 @@ async def on_startup(app):
     asyncio.create_task(smart_radar_watchdog(pool))
     asyncio.create_task(radar_worker_process(pool))
     #asyncio.create_task(daily_channel_post())
-    asyncio.create_task(update_market_memory_loop(pool)) # 🔥 تشغيل ذاكرة السوق
     await bot.set_webhook(f"{WEBHOOK_URL}/")
 
 
