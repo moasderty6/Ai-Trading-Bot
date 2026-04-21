@@ -40,7 +40,8 @@ BINANCE_HEADERS = {"X-MBX-APIKEY": BINANCE_API_KEY}
 GATE_API_KEY = "a3f6a57b42f6106011e6890049e57b2e"
 GATE_API_SECRET = "1ac18e0a690ce782f6854137908a6b16eb910cf02f5b95fa3c43b670758f79bc"
 GATE_BASE = "https://api.gateio.ws/api/v4/spot/candlesticks"
-# استخراج قائمة مفاتيح Groq
+# قائمة سوداء للعملات المشطوبة أو المزعجة لمنعها من دخول الرادار نهائياً
+BLACKLISTED_COINS = {"TOMO", "COCOS", "LRC", "BUSD", "TUSD", "USDC"}
 GROQ_KEYS_STR = os.getenv("GROQ_API_KEYS", "")
 GROQ_API_KEYS = [k.strip() for k in GROQ_KEYS_STR.split(",") if k.strip()]
 WEBHOOK_URL = os.getenv("WEBHOOK_URL") 
@@ -203,8 +204,13 @@ async def smart_radar_watchdog(pool):
                         symbol = ticker['s']
                         if not symbol.endswith("USDT"): continue
 
+                        clean_sym = symbol.replace("USDT", "")
+                        # 🚫 الحظر الجذري قبل إدخالها للذاكرة اللحظية
+                        if clean_sym in BLACKLISTED_COINS: continue
+
                         current_vol = float(ticker['q']) 
                         current_price = float(ticker['c'])
+                        # ... باقي الكود كما هو ...
 
                         if symbol in live_market_memory:
                             old_data = live_market_memory[symbol]
@@ -334,12 +340,14 @@ async def get_micro_cvd_absorption(symbol, client):
             total_vol = df["v"].sum()
             
             # 🎯 معادلة القناص: السعر شبه ثابت (أقل من 1.5% حركة)، لكن الـ CVD يرتفع بانفجار (الحوت يمتص العروض)
-            if abs(price_change) < 0.015 and cvd_trend > (total_vol * 0.35):
+                        # 🎯 معادلة القناص: السعر شبه ثابت (أقل من 2% حركة)، لكن الـ CVD يرتفع 
+            if abs(price_change) < 0.02 and cvd_trend > (total_vol * 0.15):
                 return 30.0, "Micro_Silent_Accumulation" 
             
-            # كشف التصريف المخفي: السعر يرتفع لكن الحوت يبيع
-            elif price_change > 0.02 and cvd_trend < -(total_vol * 0.2):
+            # كشف التصريف المخفي
+            elif price_change > 0.02 and cvd_trend < -(total_vol * 0.15):
                 return -25.0, "Hidden_Distribution"
+
                 
     except Exception as e:
         pass
@@ -779,23 +787,24 @@ async def analyze_radar_coin(c, client, market_regime, sem):
             # 1. فلتر الفوليوم
             # 1. فلتر الفوليوم (بمنطق تجنب الـ FOMO)
 # نحسب حركة السعر في آخر 10 شموع لنتأكد أننا لا نشتري قمة
+                        # 1. فلتر الفوليوم (بمنطق تجنب الـ FOMO)
             recent_pump = (df["close"].iloc[-1] - df["close"].iloc[-10]) / df["close"].iloc[-10]
             
             if current_z >= 4.0:
-                if recent_pump > 0.05: # إذا طارت أكثر من 5% والسيولة مجنونة = القطار فات
+                if recent_pump > 0.05: 
                     score -= 15.0 
                     tags.append("Late_FOMO")
-                else: # سيولة انفجارية والسعر لم يتحرك بعد = قنبلة موقوتة
+                else: 
                     score += 25.0 
                     tags.append("Z_Anom_Silent")
             
-            elif 1.5 <= current_z <= 3.5:
-                # هذا هو النطاق الذهبي للتجميع، سيولة تدخل بدون إحداث فوضى بالشارت
+            elif 1.0 <= current_z <= 3.5: # خفضنا النطاق الذهبي ليبدأ من 1.0
                 score += 20.0
                 tags.append("Smart_Accumulation")
             
-            elif current_z < 0: 
+            elif current_z < -0.5: # بدل 0، نعطي مساحة للعملات الهادئة جداً
                 return None
+
 
             # 2. فلتر CVD
             micro_cvd_boost, micro_cvd_signal = await get_micro_cvd_absorption(symbol, client)
@@ -888,11 +897,12 @@ async def analyze_radar_coin(c, client, market_regime, sem):
             is_macro_downtrend = price < ema200_val
 
             # 🟢 3. شروط القناص النهائي:
-            required_score = 80.0 if (market_regime['trend'] == "Trending_Bear" or is_macro_downtrend) else 70.0
-            required_confluence = 3 if (market_regime['trend'] == "Trending_Bear" or is_macro_downtrend) else 2
+                        # 🟢 3. شروط القناص النهائي (مخففة لإعطاء فرص أكثر):
+            required_score = 65.0 if (market_regime['trend'] == "Trending_Bear" or is_macro_downtrend) else 55.0
+            required_confluence = 2 if (market_regime['trend'] == "Trending_Bear" or is_macro_downtrend) else 1
 
             # إرجاع النتيجة فقط إذا تحقق السكور + الإجماع الفني
-            if score >= required_score and confluence_count >= required_confluence:  
+            if score >= required_score and confluence_count >= required_confluence:    
                 return {
                     "symbol": symbol, "price": price, "score": score,
                     "rsi": round(last_rsi, 2), "adx": round(current_adx, 2),
@@ -944,7 +954,8 @@ async def ai_opportunity_radar(pool):
                     if not symbol.endswith("USDT"): continue # نأخذ أزواج التيثر فقط
                     
                     clean_sym = symbol.replace("USDT", "")
-                    if clean_sym in STABLE_COINS or clean_sym in ignored_symbols: continue
+                    if clean_sym in STABLE_COINS or clean_sym in ignored_symbols or clean_sym in BLACKLISTED_COINS: 
+                        continue
                     
                     vol_usd = float(t["quoteVolume"])
                     price_change = float(t["priceChangePercent"])
@@ -998,7 +1009,7 @@ async def ai_opportunity_radar(pool):
 - المؤشرات الكلاسيكية: ADX: {best_meta['adx']} | RSI: {best_meta['rsi']}
 
 التعليمات الصارمة:
-1. اكتب التحليل في 3 نقاط (Bullet points) باستخدام HTML (•).
+1. اكتب التحليل في 3 نقاط قصيرة بحيث لا يتجاوز ثلاث اسطر (Bullet points) باستخدام HTML (•).
 2. استخدم أسلوباً مؤسساتياً جافاً ومباشراً يعتمد على الأرقام أعلاه فقط.
 3. يمنع منعاً باتاً استخدام الكلمات العاطفية أو التسويقية (مثل: قوي جداً، انفجار، صاروخ، فرصة ذهبية، هائل).
 4. فسر الأرقام باحترافية: مثلاً (تزايد السيولة بـ x ضعف يعكس امتصاصاً لعروض البيع...).
@@ -1018,7 +1029,7 @@ Calculated Metrics:
 - Classic Indicators: ADX: {best_meta['adx']} | RSI: {best_meta['rsi']}
 
 Strict Instructions:
-1. Write the analysis in exactly 3 bullet points using HTML (•).
+1. Write the analysis in exactly 3 short bullet points So that it does not exceed three lines using HTML (•).
 2. Use a dry, direct, institutional tone based strictly on the provided numbers.
 3. ABSOLUTELY NO emotional or marketing words (e.g., massive, explosion, to the moon, huge).
 4. Interpret the numbers professionally: e.g. (A liquidity increase of x times indicates absorption of sell pressure).
