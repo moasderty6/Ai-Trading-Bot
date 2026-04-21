@@ -40,8 +40,7 @@ BINANCE_HEADERS = {"X-MBX-APIKEY": BINANCE_API_KEY}
 GATE_API_KEY = "a3f6a57b42f6106011e6890049e57b2e"
 GATE_API_SECRET = "1ac18e0a690ce782f6854137908a6b16eb910cf02f5b95fa3c43b670758f79bc"
 GATE_BASE = "https://api.gateio.ws/api/v4/spot/candlesticks"
-# قائمة سوداء للعملات المشطوبة أو المزعجة لمنعها من دخول الرادار نهائياً
-BLACKLISTED_COINS = {"TOMO", "COCOS", "LRC", "BUSD", "TUSD", "USDC"}
+BLACKLISTED_COINS = {"TOMO", "COCOS", "LRC", "BUSD", "TUSD", "USDC", "USDE", "XUSD"}
 GROQ_KEYS_STR = os.getenv("GROQ_API_KEYS", "")
 GROQ_API_KEYS = [k.strip() for k in GROQ_KEYS_STR.split(",") if k.strip()]
 WEBHOOK_URL = os.getenv("WEBHOOK_URL") 
@@ -437,47 +436,71 @@ async def detect_market_regime(client):
     
     return {"trend": regime, "volatility": volatility, "adx": current_adx}
 
-async def analyze_orderbook_depth(symbol, client):
+async def analyze_orderbook_depth(symbol, client, snapshots=3, delay=2.0):
     """
-    تحليل أعمق لـ 500 مستوى في الأوردر بوك لكشف الجدران المخفية (Iceberg) والتلاعب (Spoofing)
+    تحليل متقدم للأوردر بوك يأخذ عدة لقطات (Snapshots) متتالية 
+    لكشف الجدران الوهمية اللحظية (Flash Spoofing) التي تضعها حيتان التلاعب وتسحبها.
     """
     pair = f"{symbol.upper()}USDT"
-    # غيرنا الليمت إلى 500 لكشف الأعماق الحقيقية
-    res = await client.get(f"https://api.binance.com/api/v3/depth", params={"symbol": pair, "limit": 500})
     
-    if res.status_code == 200:
-        data = res.json()
-        bids = data['bids'] # طلبات الشراء (الدعم)
-        asks = data['asks'] # طلبات البيع (المقاومة)
-        
-        # تقسيم العمق إلى 3 مناطق: قريبة (1-50)، متوسطة (51-200)، بعيدة (201-500)
-        # المنطقة القريبة (السيولة اللحظية الحقيقية التي تحرك السعر الآن)
-        near_bids_vol = sum(float(b[0]) * float(b[1]) for b in bids[:50])
-        near_asks_vol = sum(float(a[0]) * float(a[1]) for a in asks[:50])
-        
-        # المنطقة البعيدة (هنا يضع الحيتان الأوامر الوهمية Spoofing)
-        far_bids_vol = sum(float(b[0]) * float(b[1]) for b in bids[200:500])
-        far_asks_vol = sum(float(a[0]) * float(a[1]) for a in asks[200:500])
+    total_imbalance = 0.0
+    spoof_count = 0
+    hidden_wall_count = 0
+    near_support_avg = 0.0
+    
+    for i in range(snapshots):
+        try:
+            res = await client.get(f"https://api.binance.com/api/v3/depth", params={"symbol": pair, "limit": 500})
+            if res.status_code == 200:
+                data = res.json()
+                bids = data['bids']
+                asks = data['asks']
+                
+                near_bids_vol = sum(float(b[0]) * float(b[1]) for b in bids[:50])
+                near_asks_vol = sum(float(a[0]) * float(a[1]) for a in asks[:50])
+                far_bids_vol = sum(float(b[0]) * float(b[1]) for b in bids[200:500])
+                far_asks_vol = sum(float(a[0]) * float(a[1]) for a in asks[200:500])
 
-        # 1. حساب خلل التوازن الحقيقي (Order Book Imbalance) للمنطقة القريبة
-        total_near = near_bids_vol + near_asks_vol
-        imbalance = (near_bids_vol - near_asks_vol) / total_near if total_near > 0 else 0
-        
-        # 2. كشف الخداع (Spoofing Detection)
-        # إذا كانت الطلبات البعيدة ضخمة جداً (أكبر بـ 5 أضعاف من القريبة) فهذا فخ وهمي لدفع السعر للأسفل ثم سحبها!
-        spoofing_risk = far_bids_vol > (near_bids_vol * 5.0)
-        
-        # 3. كشف جدار البيع الخفي (Iceberg Distribution)
-        # إذا كان الدعم القريب قوي جداً، لكن يوجد جدار بيع بعيد أضخم منه، الحوت يصرف بصمت
-        hidden_wall_risk = far_asks_vol > (near_asks_vol * 8.0) and far_asks_vol > (near_bids_vol * 3.0)
+                total_near = near_bids_vol + near_asks_vol
+                imbalance = (near_bids_vol - near_asks_vol) / total_near if total_near > 0 else 0
+                
+                total_imbalance += imbalance
+                near_support_avg += near_bids_vol
+                
+                # كشف التلاعب في هذه اللقطة
+                if far_bids_vol > (near_bids_vol * 5.0):
+                    spoof_count += 1
+                if far_asks_vol > (near_asks_vol * 8.0) and far_asks_vol > (near_bids_vol * 3.0):
+                    hidden_wall_count += 1
+                    
+            # الانتظار قبل أخذ اللقطة التالية (إلا في اللقطة الأخيرة)
+            if i < snapshots - 1:
+                await asyncio.sleep(delay)
+                
+        except Exception:
+            pass
 
-        return {
-            "imbalance": round(imbalance, 2), # من 1.0 (شراء كاسح) إلى -1.0 (بيع كاسح)
-            "spoofing_risk": spoofing_risk,
-            "hidden_wall": hidden_wall_risk,
-            "real_support": near_bids_vol
-        }
-    return None
+    # إذا فشلت كل اللقطات
+    if near_support_avg == 0:
+        return None
+
+    # حساب المتوسطات
+    avg_imbalance = total_imbalance / snapshots
+    avg_support = near_support_avg / snapshots
+
+    # 🎯 محرك اتخاذ القرار:
+    # 1. تلاعب خاطف (Flash Spoof): الجدار ظهر واختفى (تم رصده في لقطة واحدة أو اثنتين فقط)
+    is_flash_spoof = (0 < spoof_count < snapshots)
+    
+    # 2. جدار بيع خفي ثابت (Persistent Wall): الجدار صامد في أغلب اللقطات
+    is_persistent_wall = hidden_wall_count >= (snapshots // 2 + 1)
+
+    return {
+        "imbalance": round(avg_imbalance, 2),
+        "is_flash_spoof": is_flash_spoof,
+        "persistent_wall": is_persistent_wall,
+        "real_support": avg_support
+    }
 
 async def get_aggregated_orderbook(client: httpx.AsyncClient, symbol: str):
     """
@@ -834,16 +857,26 @@ async def analyze_radar_coin(c, client, market_regime, sem):
                 tags.append("RSI_Div")
 
             # 5. الفحص العميق (Order Flow + Global)            # 5. الفحص العميق (Order Flow + Global)            # 5. الفحص العميق (Order Flow + Global)# --- استبدال الفحص العميق رقم 5 بالتالي ---
-            if score >= 35.0: # خفضنا العتبة قليلاً ليتمكن من التقاط العملات في بدايتها
-                depth_data = await analyze_orderbook_depth(symbol, client)
+                        # 5. الفحص العميق (Order Flow + Global)
+            if score >= 30.0:
+                # نأخذ 3 لقطات بفاصل ثانيتين
+                depth_data = await analyze_orderbook_depth(symbol, client, snapshots=3, delay=2.0)
                 if depth_data:
-                    if depth_data['hidden_wall'] and micro_cvd_boost > 0:
-                        # أقوى مؤشر على الإطلاق: جدار بيع ضخم + الحيتان تشتري = كسر قادم
+                    # 🚫 إذا اكتشفنا أن الحيتان تتلاعب وتضع أوامر تسحبها بسرعة (فخ)
+                    if depth_data['is_flash_spoof']:
+                        score -= 20.0 
+                        tags.append("Flash_Spoofing_Manipulation")
+                    
+                    # ✅ إذا كان هناك جدار بيع ضخم وثابت، والحيتان تقوم بامتصاصه (CVD قوي)
+                    elif depth_data['persistent_wall'] and micro_cvd_boost > 0:
                         score += 25.0 
                         tags.append("Wall_Absorption_Pre_Breakout")
+                    
+                    # ✅ إذا كان الخلل الحقيقي لصالح المشترين
                     elif depth_data['imbalance'] > 0.4:
                         score += 15.0 
                         tags.append("OB_Buy")
+
             
                 # فحص السيولة المؤسساتية لآخر 15 دقيقة
                 delta_usd, buy_v, sell_v = await get_institutional_orderflow(symbol, client, minutes=15)
@@ -997,45 +1030,47 @@ async def ai_opportunity_radar(pool):
                         SET last_signaled = CURRENT_TIMESTAMP
                     """, symbol)
 
-                prompt_ar = f"""
-أنت محلل بيانات مالية (Quant Analyst) في مؤسسة "NaiF CHarT Intelligence Lab".
-مهمتك صياغة "التقرير المالي اللحظي" لعملة {symbol} بناءً على بيانات الرادار الخوارزمي.
+                                # تنسيق الأرقام لضمان عدم ظهور أرقام طويلة جداً
+                z_score_val = f"{best_meta['macd']:.2f}"
+                vol_ratio_val = f"{best_meta['vol_ratio']:.2f}"
+                ob_pressure_val = f"{best_meta.get('ob_pressure', 1.0):.2f}"
 
-البيانات المحسوبة آلياً:
-- الشذوذ الإحصائي للسيولة (Z-Score): {best_meta['macd']} (مؤشر التجميع الصامت)
-- تدفق الأموال الذكية (Volume Ratio): أعلى بـ {best_meta['vol_ratio']} ضعف من المتوسط.
-- ضغط الأوردر بوك اللحظي (Global OB): المشترون يتفوقون بـ {best_meta.get('ob_pressure', 1.0)}x.
-- الإجماع التقني (Confluence): {best_meta.get('confluence', 0)} إشارات مؤسساتية متطابقة.
-- المؤشرات الكلاسيكية: ADX: {best_meta['adx']} | RSI: {best_meta['rsi']}
+                prompt_ar = f"""
+أنت محلل كمي (Quant) في NaiF CHarT Intelligence Lab.
+اكتب تقرير فحص سريع لعملة {symbol} بناءً على هذه المعطيات:
+- Z-Score (مؤشر التجميع الصامت): {z_score_val}
+- تدفق السيولة الذكية: أعلى بـ {vol_ratio_val} ضعف.
+- ضغط الأوردر بوك: المشترون أقوى بـ {ob_pressure_val}x.
+- قوة الإجماع التقني: {best_meta.get('confluence', 0)}
+- مؤشرات الاتجاه: ADX: {best_meta['adx']} | RSI: {best_meta['rsi']}
 
 التعليمات الصارمة:
-1. اكتب التحليل في 3 نقاط قصيرة بحيث لا يتجاوز ثلاث اسطر (Bullet points) باستخدام HTML (•).
-2. استخدم أسلوباً مؤسساتياً جافاً ومباشراً يعتمد على الأرقام أعلاه فقط.
-3. يمنع منعاً باتاً استخدام الكلمات العاطفية أو التسويقية (مثل: قوي جداً، انفجار، صاروخ، فرصة ذهبية، هائل).
-4. فسر الأرقام باحترافية: مثلاً (تزايد السيولة بـ x ضعف يعكس امتصاصاً لعروض البيع...).
+1. التنويع: لا تكرر نفس العبارات في كل تحليل. استخدم زوايا مختلفة (مرة ركز على امتصاص العروض، ومرة على الشراء الهجومي، ومرة على جفاف السيولة البيعية).
+2. اكتب 3 نقاط قصيرة جداً (لا تتجاوز 3 أسطر) باستخدام HTML (•).
+3. لا تقم بسرد الأرقام كما هي بشكل ممل، بل ادمجها في التحليل (مثلاً: "تضاعف السيولة بـ {vol_ratio_val} مرات يؤكد...").
+4. ممنوع استخدام كلمات الإثارة (انفجار، صاروخ، فرصة ذهبية، هائل). حافظ على لغة مؤسساتية جافة.
 
-الناتج المطلوب (باللغة العربية فقط):
+الناتج باللغة العربية فقط:
 """
 
                 prompt_en = f"""
-You are a Quant Analyst at "NaiF CHarT Intelligence Lab".
-Your task is to draft the "Real-time Financial Report" for {symbol} based on algorithmic radar data.
-
-Calculated Metrics:
-- Liquidity Statistical Anomaly (Z-Score): {best_meta['macd']} (Silent accumulation indicator)
-- Smart Money Inflow (Volume Ratio): {best_meta['vol_ratio']}x higher than average.
-- Global Orderbook Pressure: Buyers dominate by {best_meta.get('ob_pressure', 1.0)}x.
-- Technical Confluence: {best_meta.get('confluence', 0)} matching institutional signals.
-- Classic Indicators: ADX: {best_meta['adx']} | RSI: {best_meta['rsi']}
+You are a Quant Analyst at NaiF CHarT Intelligence Lab.
+Write a dynamic, real-time brief for {symbol} based on these metrics:
+- Z-Score (Silent Accumulation): {z_score_val}
+- Smart Money Inflow: {vol_ratio_val}x higher.
+- Orderbook Pressure: Buyers dominate by {ob_pressure_val}x.
+- Technical Confluence: {best_meta.get('confluence', 0)}
+- Trend Indicators: ADX: {best_meta['adx']} | RSI: {best_meta['rsi']}
 
 Strict Instructions:
-1. Write the analysis in exactly 3 short bullet points So that it does not exceed three lines using HTML (•).
-2. Use a dry, direct, institutional tone based strictly on the provided numbers.
-3. ABSOLUTELY NO emotional or marketing words (e.g., massive, explosion, to the moon, huge).
-4. Interpret the numbers professionally: e.g. (A liquidity increase of x times indicates absorption of sell pressure).
+1. Variety: Do not use the same phrasing every time. Vary your analytical angle (e.g., focus on supply absorption, aggressive market buying, or liquidity dry-up).
+2. Write exactly 3 short bullet points using HTML (•). Maximum 3 lines total.
+3. Do not just robotically list the numbers. Weave them into the analysis (e.g., "A {vol_ratio_val}x volume spike indicates...").
+4. ZERO hype words (moon, massive, explosion, huge). Keep a dry, institutional tone.
 
-Required Output (In English only):
+Output in English only:
 """
+
 
                 insight_ar = await ask_groq(prompt_ar, lang="ar")
                 insight_en = await ask_groq(prompt_en, lang="en")
@@ -1064,7 +1099,10 @@ Required Output (In English only):
                 await bot.send_message(ADMIN_USER_ID, admin_text, reply_markup=admin_kb, parse_mode=ParseMode.HTML)
                 print(f"✅ تم اصطياد قاع {symbol} بسكور {best_score}!")
                 
-                break
+                # 🟢 التعديل هنا: حذفنا break ووضعنا استراحة 5 دقائق (300 ثانية)
+                print("⏱️ الرادار يدخل في استراحة لمدة 5 دقائق قبل بدء البحث التالي...")
+                await asyncio.sleep(300) 
+
 
         except Exception as e:
             print(f"Radar Error: {e}")
@@ -2159,7 +2197,7 @@ async def run_analysis(cb: types.CallbackQuery):
     # ... (كمل باقي الكود من هنا: سحب الفوليوم من الداتا بيز، وتعريف الـ prompt بدون ما تخليهم جوا if) ...
 
 
-        # 🔥 سحب الفوليوم من قاعدة البيانات
+        # 🔥 سحب الفوليوم من قاعدة البيانات        # 🔥 سحب الفوليوم من قاعدة البيانات
         db_vol_float = 0.0
         try:
             async with pool.acquire() as conn:
@@ -2170,8 +2208,58 @@ async def run_analysis(cb: types.CallbackQuery):
         except Exception as e:
             print(f"Failed to fetch market_memory for {clean_sym}: {e}")
 
-        # تمرير قيمة الفوليوم للدالة الذكية
+        # 1. الحساب الكلاسيكي للترند والأهداف
         trend_dir, trend_str, market_action, adx_val, calc_sl, calc_tp1, calc_tp2, calc_tp3, calc_sup, calc_res = calculate_smart_trend_and_targets(df, price, db_vol_float, lang)
+
+        # 2. ⚡ حقن قوة الرادار (السيولة المؤسساتية) لتنقيح الاتجاه وقوته
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                old_price_val = df["close"].iloc[-3] if len(df) > 3 else price
+                
+                # جلب البيانات المؤسساتية بالتوازي لضمان سرعة استجابة البوت
+                cvd_task = get_micro_cvd_absorption(f"{clean_sym}USDT", client)
+                flow_task = get_institutional_orderflow(f"{clean_sym}USDT", client, minutes=15)
+                futures_task = get_futures_liquidity(clean_sym, client, price, old_price_val)
+                
+                (cvd_boost, cvd_sig), (delta_usd, buy_v, sell_v), (fut_boost, fut_sig) = await asyncio.gather(
+                    cvd_task, flow_task, futures_task
+                )
+                
+                z_score, _, _ = calculate_volume_zscore(df, window=720)
+
+                # 3. تعديل (trend_str) و (market_action) بناءً على النوايا الحقيقية للحيتان                # 3. تعديل (trend_str) و (market_action) بناءً على النوايا الحقيقية للحيتان
+                                # 3. تعديل (trend_str) و (market_action) بناءً على النوايا الحقيقية للحيتان
+                if trend_dir == "Bullish":
+                    if cvd_sig == "Hidden_Distribution" or (sell_v > buy_v * 1.5) or z_score > 4.0:
+                        trend_str = "ضعيف - خطر الانعكاس" if lang == "ar" else "Weak - Reversal Risk"
+                        market_action += " | فخ شرائي وتصريف مخفي" if lang == "ar" else " | Bull Trap & Hidden Distribution"
+                    elif cvd_sig == "Micro_Silent_Accumulation" or buy_v > sell_v * 1.5:
+                        trend_str = "قوي جداً - دخول مؤسساتي" if lang == "ar" else "Very Strong - Inst. Inflow"
+                        
+                    # المشتقات في حالة الصعود
+                    if fut_sig == "Short_Squeeze":
+                        trend_str = "انفجار سعري وشيك" if lang == "ar" else "Imminent Squeeze"
+                    elif fut_sig == "Short_Covering":
+                        trend_str = "متوسط - إغلاق مراكز بيع" if lang == "ar" else "Moderate - Short Covering"
+
+                elif trend_dir == "Bearish":
+                    if cvd_sig == "Micro_Silent_Accumulation" or (buy_v > sell_v * 1.5):
+                        trend_str = "مخادع - احتمال ارتداد صاعد" if lang == "ar" else "Fake - Bullish Reversal Risk"
+                        market_action += " | فخ بيعي وامتصاص للعروض" if lang == "ar" else " | Bear Trap & Supply Absorption"
+                    elif cvd_sig == "Hidden_Distribution" or (sell_v > buy_v * 1.5):
+                        trend_str = "قوي - تصريف مؤسساتي" if lang == "ar" else "Strong - Inst. Distribution"
+                        
+                    # المشتقات في حالة الهبوط
+                    if fut_sig == "Short_Squeeze":
+                        # السكويز هنا يعني صعود مفاجئ يخالف الترند الهابط (خطر على صفقات البيع)
+                        trend_str = "خطر ارتداد صاعد - Short Squeeze" if lang == "ar" else "Short Squeeze Risk"
+                    elif fut_sig == "Short_Covering":
+                        trend_str = "ضعيف - جني أرباح للمراكز البيعية" if lang == "ar" else "Weak - Bearish Profit Taking"
+                    
+        except Exception as e:
+            print(f"Error injecting radar data into analysis: {e}")
+            # في حال فشل الاتصال، سيعتمد البوت بسلاسة على المتغيرات الكلاسيكية المحسوبة في الخطوة 1
+
 
         # 🟢 استعادة تعريف متغيرات RSI و MACD لتجنب خطأ NameError
         macd_fmt = format_price(last_macd) if 'last_macd' in locals() and last_macd is not None else "0.0"
