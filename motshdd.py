@@ -55,6 +55,9 @@ ADMIN_USER_ID = 6172153716
 GROQ_MODEL = "llama-3.3-70b-versatile"
 
 # --- إعداد البوت ---
+# إشارة مرور للتحكم في طلبات بايننس لمنع الحظر
+binance_rate_limit_event = asyncio.Event()
+binance_rate_limit_event.set() # الإشارة خضراء افتراضياً (مسموح بالطلبات)
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())
 user_session_data = {}
@@ -907,22 +910,38 @@ async def analyze_radar_coin(c, client, market_regime, sem):
             score = round(max(0.0, min(score, 98.5)), 1)
             
             # 🟢 محرك تسمية الإشارة الذكي (Short & Punchy Signal Names)
+                        # 🟢 محرك تسمية الإشارة الذكي (المصحح والمطور)
             final_signal = "High Probability Setup 🎯"
-            if "Fake_Pump" in tags or "Spoofing_or_Wall" in tags or "Short_Covering" in tags:
+            
+            # 1. إشارات الخطر (تمنع إرسال العملة)
+            if "Fake_Pump" in tags or "Flash_Spoofing_Manipulation" in tags or "Short_Covering" in tags or "Late_FOMO" in tags or "Hidden_Distribution" in tags:
                 return None 
-            elif "Whale_CVD" in tags and "Aggressive_Buy" in tags: final_signal = "Aggressive Whale Accumulation 🐋"
-            elif "Short_Squeeze" in tags: final_signal = "(Short Squeeze) 🔥"
-            elif "Z_Anom" in tags and "OI_Rising" in tags: final_signal = "(Derivatives Pump) 🚀"
-            elif "Squeeze" in tags and "OB_Buy" in tags: final_signal = "(Liquidity Breakout) ⚡"
-            elif "Whale_CVD" in tags: final_signal = "Silent Institutional Accumulation 🧲"
-            elif "Z_Anom" in tags or "Z_High" in tags: final_signal = "Smart Money Inflow 💸"
+                
+            # 2. الإشارات الأسطورية (سكور فوق 90)
+            if score >= 90.0:
+                final_signal = "Massive Institutional Accumulation 🐋"
+            
+            # 3. الإشارات القوية المحددة (تم تصحيحها)
+            elif "Micro_Silent_Accumulation" in tags and "Institutional_Buy_Spike" in tags: 
+                final_signal = "Aggressive Whale Accumulation 🐋"
+            elif "Short_Squeeze" in tags: 
+                final_signal = "(Short Squeeze) 🔥"
+            elif "Z_Anom_Silent" in tags and "OI_Rising" in tags: 
+                final_signal = "(Derivatives Pump) 🚀"
+            elif "Squeeze" in tags and "OB_Buy" in tags: 
+                final_signal = "(Liquidity Breakout) ⚡"
+            elif "Micro_Silent_Accumulation" in tags or "Wall_Absorption_Pre_Breakout" in tags: 
+                final_signal = "Silent Institutional Accumulation 🧲"
+            elif "Z_Anom_Silent" in tags or "Smart_Accumulation" in tags: 
+                final_signal = "Smart Money Inflow 💸"
 
             avg_vol_20 = df["volume"].rolling(20).mean().iloc[-1]
             avg_vol_5 = df["volume"].rolling(5).mean().iloc[-1]
             current_vol_ratio = (avg_vol_5 / avg_vol_20) if avg_vol_20 > 0 else 1.0
 
-            # 🟢 1. تحديد الإشارات الحيوية (المفاتيح الذهبية)
-            golden_tags = {"Z_Anom", "Z_High", "Whale_CVD", "Aggressive_Buy", "OB_Buy", "Squeeze"}
+            # 🟢 1. تحديد الإشارات الحيوية (تم تصحيح المفاتيح الذهبية)
+            golden_tags = {"Z_Anom_Silent", "Smart_Accumulation", "Micro_Silent_Accumulation", "Institutional_Buy_Spike", "OB_Buy", "Squeeze"}
+            
             # كم إشارة ذهبية اجتمعت في هذه العملة؟
             confluence_count = sum(1 for tag in tags if tag in golden_tags)
 
@@ -930,7 +949,6 @@ async def analyze_radar_coin(c, client, market_regime, sem):
             is_macro_downtrend = price < ema200_val
 
             # 🟢 3. شروط القناص النهائي:
-                        # 🟢 3. شروط القناص النهائي (مخففة لإعطاء فرص أكثر):
             required_score = 65.0 if (market_regime['trend'] == "Trending_Bear" or is_macro_downtrend) else 55.0
             required_confluence = 2 if (market_regime['trend'] == "Trending_Bear" or is_macro_downtrend) else 1
 
@@ -950,6 +968,23 @@ async def analyze_radar_coin(c, client, market_regime, sem):
             return None
 
 
+async def handle_binance_rate_limit(retry_after: int = 60):
+    """توقف الرادار بالكامل عند استقبال 429 لمنع حظر 418"""
+    # نتأكد أن الإشارة خضراء حتى لا نقوم بتشغيل المؤقت أكثر من مرة
+    if binance_rate_limit_event.is_set():
+        print(f"⚠️ [نظام الحماية] بايننس أرسلت تحذير (429)! إيقاف جميع الطلبات لمدة {retry_after} ثانية...")
+        
+        # تحويل الإشارة إلى حمراء (تجميد كل المهام التي تنتظر الإشارة)
+        binance_rate_limit_event.clear() 
+        
+        # ننتظر الفترة المطلوبة من بايننس
+        await asyncio.sleep(retry_after)
+        
+        print("🟢 [نظام الحماية] انتهاء فترة التوقف. استئناف عمل الرادار...")
+        
+        # إرجاع الإشارة خضراء (تستيقظ جميع المهام وتكمل عملها تلقائياً)
+        binance_rate_limit_event.set() 
+
 async def ai_opportunity_radar(pool):
     print("🚀 تم تشغيل الرادار الشامل (وضع صيد القيعان)...")
     sem = asyncio.Semaphore(5)
@@ -967,11 +1002,16 @@ async def ai_opportunity_radar(pool):
                 ignored_symbols = {r['symbol'] for r in records}
 
             async with httpx.AsyncClient(timeout=30) as client:
+                
+                # 👇👇 هذا هو السطر الجديد (نقطة التفتيش / البريك) 👇👇
+                await binance_rate_limit_event.wait()
+                
                 # 🟢 التعديل هنا: جلب بيانات الماكرو الجديدة بدل البوليان القديم
                 market_regime = await detect_market_regime(client)
                 
                 # جلب بيانات بايننس اللحظية (24hr Ticker) بدون أي تأخير
                 res = await client.get("https://api.binance.com/api/v3/ticker/24hr", timeout=10)
+
                 
                 if res.status_code != 200:
                     await bot.send_message(ADMIN_USER_ID, "❌ فشل الاتصال بـ Binance API. سيتم إعادة المحاولة...")
@@ -1733,6 +1773,9 @@ async def get_candles_binance(symbol: str, interval: str, limit: int = 500, retr
     
     async with httpx.AsyncClient() as client:
         for attempt in range(retries):
+            # 🛑 انتظار الإشارة الخضراء قبل إرسال أي طلب لبايننس
+            await binance_rate_limit_event.wait()
+
             try:
                 res = await client.get(
                     f"{BINANCE_BASE}/klines",
@@ -1745,17 +1788,26 @@ async def get_candles_binance(symbol: str, interval: str, limit: int = 500, retr
                     formatted_candles = []
                     for c in data:
                         formatted_candles.append([
-                            str(int(c[0] / 1000)), # 0: Timestamp
-                            c[5], # 1: Total Volume
-                            c[4], # 2: Close
-                            c[2], # 3: High
-                            c[3], # 4: Low
-                            c[1], # 5: Open
-                            c[9]  # 6: Taker Buy Base Asset Volume (هنا السر: أموال الشراء العدواني)
+                            str(int(c[0] / 1000)), c[5], c[4], c[2], c[3], c[1], c[9]
                         ])
                     return formatted_candles
+                
+                # 🚨 هنا يتم اصطياد التحذير قبل الحظر!
                 elif res.status_code == 429:
-                    await asyncio.sleep(2 * (attempt + 1))
+                    # قراءة وقت الانتظار المطلوب من هيدر بايننس (أو افتراض 60 ثانية)
+                    retry_after = int(res.headers.get("Retry-After", 60))
+                    
+                    # تفعيل حالة الطوارئ وإيقاف باقي الرادار
+                    asyncio.create_task(handle_binance_rate_limit(retry_after))
+                    
+                    # تأخير بسيط للمحاولة الحالية
+                    await asyncio.sleep(2) 
+                    
+                elif res.status_code == 418:
+                    print("❌ [كارثة] حظر IP كامل (418)! خادمك محظور من بايننس.")
+                    # إيقاف إجباري لمدة 5 دقائق على الأقل لمحاولة تهدئة السيرفر
+                    asyncio.create_task(handle_binance_rate_limit(300))
+                    return None
                 else:
                     return None
             except Exception as e:
@@ -1863,7 +1915,7 @@ def detect_nearest_fvg(df, current_price, trend_direction):
 
     return best_fvg_target
 
-def calculate_smart_trend_and_targets(df, current_price, db_vol_change, lang="ar"):
+def calculate_smart_trend_and_targets(df, current_price, db_vol_change, lang="ar", override_trend=None):
     
     # 🟢 الحل الجذري: إجبار تحويل الأعمدة إلى أرقام (Floats) قبل أي عملية حسابية
     for col in ['high', 'low', 'close', 'open', 'volume']:
@@ -1911,8 +1963,14 @@ def calculate_smart_trend_and_targets(df, current_price, db_vol_change, lang="ar
     except:
         real_adx_value = 0.0
 
-    micro_bull = ema20 > ema50
-    trend_direction = "Bullish" if micro_bull else "Bearish"
+        # التحكم في الاتجاه بناءً على أمر الرادار (إن وُجد) لمنع التضارب
+    if override_trend:
+        trend_direction = override_trend
+        micro_bull = (trend_direction == "Bullish")
+    else:
+        micro_bull = ema20 > ema50
+        trend_direction = "Bullish" if micro_bull else "Bearish"
+
 
     if real_adx_value < 20:
         trend_strength = "ضعيف" if lang == "ar" else "Weak"
@@ -1939,8 +1997,9 @@ def calculate_smart_trend_and_targets(df, current_price, db_vol_change, lang="ar
                 trend_strength = "متوسط" if lang == "ar" else "Moderate"
                 market_action = "جني أرباح طبيعي وتصحيح ضمن ترند صاعد عام" if lang == "ar" else "Natural profit-taking and correction within a macro uptrend"
             elif not macro_bull and vwap_bull:
-                trend_strength = "ضعيف" if lang == "ar" else "Weak"
-                market_action = "الحيتان تشتري الهبوط سرًا" if lang == "ar" else "Whales are silently buying the dip"
+                trend_strength = "مخادع (خطر ارتداد)" if lang == "ar" else "Fake (Bounce Risk)"
+                market_action = "سيولة شرائية مؤقتة تعاكس الترند الهابط العام" if lang == "ar" else "Temporary buying liquidity countering the macro downtrend"
+
             else:
                 trend_strength = "ضعيف ومخادع" if lang == "ar" else "Weak & Fake"
                 market_action = "فخ بيعي لتخويف المتداولين" if lang == "ar" else "Bear trap to shake out retail traders"
@@ -2020,25 +2079,15 @@ def compute_indicators(candles):
 import numpy as np
 
 def calculate_vpvr_levels(df, current_price, trend_direction, num_bins=50):
-    """
-    محرك Volume Profile لحساب الأهداف ووقف الخسارة بناءً على العقد السعرية الفعلية.
-    """
     try:
-        # 1. تحديد النطاق السعري لآخر فترة
         min_price = df['low'].min()
         max_price = df['high'].max()
-
-        # 2. تقسيم النطاق إلى 50 مستوى سعري (Bins)
         price_bins = np.linspace(min_price, max_price, num_bins)
         
-        # 3. حساب السعر النموذجي (Typical Price) لكل شمعة
         df['typical_price'] = (df['high'] + df['low'] + df['close']) / 3
-
-        # 4. توزيع الفوليوم على المستويات السعرية
         df['bin_index'] = np.digitize(df['typical_price'], price_bins) - 1
         vol_profile = df.groupby('bin_index')['volume'].sum()
 
-        # تجهيز القائمة النهائية للبروفايل
         profile = []
         for idx, vol in vol_profile.items():
             if 0 <= idx < len(price_bins):
@@ -2048,54 +2097,61 @@ def calculate_vpvr_levels(df, current_price, trend_direction, num_bins=50):
         if profile_df.empty:
             raise ValueError("Empty Profile")
 
-        # 5. فصل المستويات السعرية أعلى وأسفل السعر الحالي
         above_price = profile_df[profile_df['price'] > current_price]
         below_price = profile_df[profile_df['price'] < current_price]
 
-        # 6. استخراج الأهداف (TP) والستوب (SL)
+        # 🛡️ إعدادات الحماية وإدارة المخاطر الجديدة
+        MAX_SL_PCT = 0.05  # أقصى مسافة لوقف الخسارة (5%)
+        MIN_TP_PCT = 0.015 # أقل مسافة للهدف الأول (1.5%)
+
         if trend_direction == "Bullish":
-            # الأهداف (TP) هي أكبر 3 عقد سيولة (HVN) فوق السعر الحالي
-            targets = above_price.nlargest(3, 'volume').sort_values('price')
+            # فلترة الأهداف لتكون بعيدة منطقياً عن السعر الحالي
+            valid_targets = above_price[above_price['price'] >= current_price * (1 + MIN_TP_PCT)]
+            targets = valid_targets.nlargest(3, 'volume').sort_values('price')
             tps = targets['price'].tolist()
 
-            # الدعم الرئيسي هو أكبر عقدة تحت السعر
             support_node = below_price.nlargest(1, 'volume')
             support_price = support_node['price'].iloc[0] if not support_node.empty else current_price * 0.95
 
-            # وقف الخسارة (SL): نبحث عن منطقة فراغ سيولة (LVN) تحت الدعم مباشرة
-            # حتى يكون الستوب محمي بجدار سيولة (الدعم)
             lvns_below_support = below_price[below_price['price'] < support_price]
             if not lvns_below_support.empty:
                 sl_price = lvns_below_support.nsmallest(1, 'volume')['price'].iloc[0]
             else:
                 sl_price = support_price * 0.98
 
+            # تطبيق سقف حماية الستوب
+            if sl_price < current_price * (1 - MAX_SL_PCT):
+                sl_price = current_price * (1 - MAX_SL_PCT)
+
         else: # Bearish
-            # الأهداف هي أكبر 3 عقد سيولة تحت السعر
-            targets = below_price.nlargest(3, 'volume').sort_values('price', ascending=False)
+            valid_targets = below_price[below_price['price'] <= current_price * (1 - MIN_TP_PCT)]
+            targets = valid_targets.nlargest(3, 'volume').sort_values('price', ascending=False)
             tps = targets['price'].tolist()
 
-            # المقاومة هي أكبر عقدة فوق السعر
             res_node = above_price.nlargest(1, 'volume')
             res_price = res_node['price'].iloc[0] if not res_node.empty else current_price * 1.05
 
-            # وقف الخسارة (SL): منطقة فراغ (LVN) فوق المقاومة
             lvns_above_res = above_price[above_price['price'] > res_price]
             if not lvns_above_res.empty:
                 sl_price = lvns_above_res.nsmallest(1, 'volume')['price'].iloc[0]
             else:
                 sl_price = res_price * 1.02
 
-        # تأمين النتائج في حال لم نجد 3 أهداف
-        tp1 = tps[0] if len(tps) > 0 else current_price * (1.02 if trend_direction == "Bullish" else 0.98)
-        tp2 = tps[1] if len(tps) > 1 else tp1 * (1.02 if trend_direction == "Bullish" else 0.98)
-        tp3 = tps[2] if len(tps) > 2 else tp2 * (1.02 if trend_direction == "Bullish" else 0.98)
+            # تطبيق سقف حماية الستوب
+            if sl_price > current_price * (1 + MAX_SL_PCT):
+                sl_price = current_price * (1 + MAX_SL_PCT)
 
-        # ترتيب الأهداف منطقياً (تصاعدي للشراء، تنازلي للبيع)
+        # ترتيب الأهداف منطقياً مع حماية النواقص إذا لم يتم العثور على 3 عقد
         if trend_direction == "Bullish":
+            tp1 = tps[0] if len(tps) > 0 else current_price * (1 + MIN_TP_PCT)
+            tp2 = tps[1] if len(tps) > 1 else tp1 * 1.02
+            tp3 = tps[2] if len(tps) > 2 else tp2 * 1.02
             tp1, tp2, tp3 = sorted([tp1, tp2, tp3])
-            sl_price = min(sl_price, current_price * 0.99) # حماية أخيرة للستوب
+            sl_price = min(sl_price, current_price * 0.99)
         else:
+            tp1 = tps[0] if len(tps) > 0 else current_price * (1 - MIN_TP_PCT)
+            tp2 = tps[1] if len(tps) > 1 else tp1 * 0.98
+            tp3 = tps[2] if len(tps) > 2 else tp2 * 0.98
             tp1, tp2, tp3 = sorted([tp1, tp2, tp3], reverse=True)
             sl_price = max(sl_price, current_price * 1.01)
 
@@ -2103,8 +2159,8 @@ def calculate_vpvr_levels(df, current_price, trend_direction, num_bins=50):
 
     except Exception as e:
         print(f"VPVR Error: {e}")
-        # أهداف احتياطية كلاسيكية في حال فشل الحساب
-        return current_price*0.9, current_price*1.05, current_price*1.1, current_price*1.15
+        # أهداف احتياطية محمية في حال فشل الحساب
+        return current_price*0.95, current_price*1.02, current_price*1.04, current_price*1.06
 
 # --- دالة التحليل المعدلة ---
 # --- دالة التحليل المعدلة ---
@@ -2175,30 +2231,19 @@ async def run_analysis(cb: types.CallbackQuery):
     # ... (كمل باقي الكود من هنا: سحب الفوليوم من الداتا بيز، وتعريف الـ prompt بدون ما تخليهم جوا if) ...
 
 
-        # 🔥 سحب الفوليوم من قاعدة البيانات        # 🔥 سحب الفوليوم من قاعدة البيانات        # 🔥 حساب تغير الفوليوم الحقيقي مباشرة من بيانات بايننس (أدق وأسرع من CMC)
+        # 🔥 سحب الفوليوم من قاعدة البيانات        # 🔥 سحب الفوليوم من قاعدة البيانات        # 🔥 حساب تغير الفوليوم الحقيقي مباشرة من بيانات بايننس (أدق وأسرع من CMC)        # 🔥 حساب تغير الفوليوم الحقيقي
         db_vol_float = 0.0
         try:
-            # مقارنة متوسط فوليوم آخر 5 شموع بمتوسط آخر 20 شمعة
             avg_vol_20 = df["volume"].rolling(20).mean().iloc[-1]
             avg_vol_5 = df["volume"].rolling(5).mean().iloc[-1]
-            
             if avg_vol_20 > 0:
-                vol_ratio = avg_vol_5 / avg_vol_20
-                # تحويل النسبة إلى مئوية لتطابق خوارزمية البوت القديمة (مثال: إذا زاد النصف سيصبح 50%)
-                db_vol_float = (vol_ratio - 1) * 100 
-        except Exception as e:
-            db_vol_float = 0.0
+                db_vol_float = ((avg_vol_5 / avg_vol_20) - 1) * 100 
+        except: pass
 
-
-        # 1. الحساب الكلاسيكي للترند والأهداف
-        trend_dir, trend_str, market_action, adx_val, calc_sl, calc_tp1, calc_tp2, calc_tp3, calc_sup, calc_res = calculate_smart_trend_and_targets(df, price, db_vol_float, lang)
-
-        # 2. ⚡ حقن قوة الرادار (السيولة المؤسساتية) لتنقيح الاتجاه وقوته
+        # 1. ⚡ جلب البيانات المؤسساتية أولاً لمعرفة النية المخفية (قبل وضع الأهداف)
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 old_price_val = df["close"].iloc[-3] if len(df) > 3 else price
-                
-                # جلب البيانات المؤسساتية بالتوازي لضمان سرعة استجابة البوت
                 cvd_task = get_micro_cvd_absorption(f"{clean_sym}USDT", client)
                 flow_task = get_institutional_orderflow(f"{clean_sym}USDT", client, minutes=15)
                 futures_task = get_futures_liquidity(clean_sym, client, price, old_price_val)
@@ -2206,42 +2251,47 @@ async def run_analysis(cb: types.CallbackQuery):
                 (cvd_boost, cvd_sig), (delta_usd, buy_v, sell_v), (fut_boost, fut_sig) = await asyncio.gather(
                     cvd_task, flow_task, futures_task
                 )
-                
                 z_score, _, _ = calculate_volume_zscore(df, window=720)
+        except Exception:
+            cvd_sig, buy_v, sell_v, fut_sig, z_score = None, 0, 0, None, 0
 
-                # 3. تعديل (trend_str) و (market_action) بناءً على النوايا الحقيقية للحيتان                # 3. تعديل (trend_str) و (market_action) بناءً على النوايا الحقيقية للحيتان
-                                # 3. تعديل (trend_str) و (market_action) بناءً على النوايا الحقيقية للحيتان
-                if trend_dir == "Bullish":
-                    if cvd_sig == "Hidden_Distribution" or (sell_v > buy_v * 1.5) or z_score > 4.0:
-                        trend_str = "ضعيف - خطر الانعكاس" if lang == "ar" else "Weak - Reversal Risk"
-                        market_action += " | فخ شرائي وتصريف مخفي" if lang == "ar" else " | Bull Trap & Hidden Distribution"
-                    elif cvd_sig == "Micro_Silent_Accumulation" or buy_v > sell_v * 1.5:
-                        trend_str = "قوي جداً" if lang == "ar" else "Very Strong"
-                        
-                    # المشتقات في حالة الصعود
-                    if fut_sig == "Short_Squeeze":
-                        trend_str = "انفجار سعري وشيك" if lang == "ar" else "Imminent Squeeze"
-                    elif fut_sig == "Short_Covering":
-                        trend_str = "متوسط - إغلاق مراكز بيع" if lang == "ar" else "Moderate - Short Covering"
+        # 2. كشف الفخاخ وتوحيد الاتجاه        # 2. كشف الفخاخ والارتدادات لتوحيد الاتجاه
+        ema20 = df['close'].ewm(span=20, adjust=False).mean().iloc[-1]
+        ema50 = df['close'].ewm(span=50, adjust=False).mean().iloc[-1]
+        classic_trend = "Bullish" if ema20 > ema50 else "Bearish"
+        
+        final_trend_dir = classic_trend
+        
+        # أ. شروط انعكاس الاتجاه من هابط إلى صاعد (اصطياد القاع)
+        if classic_trend == "Bearish":
+            # إما الحيتان تشتري الآن، أو المؤشرات (RSI/MACD) تؤكد ارتداداً صريحاً من القاع
+            if (cvd_sig == "Micro_Silent_Accumulation" or buy_v > sell_v * 1.5) or (last_rsi < 40 and last_macd > 0):
+                final_trend_dir = "Bullish" 
+                
+        # ب. شروط انعكاس الاتجاه من صاعد إلى هابط (الهروب من القمة المخادعة)
+        elif classic_trend == "Bullish":
+            # إما الحيتان تصرف الآن، أو المؤشرات تؤكد تشبعاً بيعياً مع تقاطع سلبي
+            if (cvd_sig == "Hidden_Distribution" or sell_v > buy_v * 1.5) or (last_rsi > 70 and last_macd < 0):
+                final_trend_dir = "Bearish" 
 
-                elif trend_dir == "Bearish":
-                    if cvd_sig == "Micro_Silent_Accumulation" or (buy_v > sell_v * 1.5):
-                        trend_str = "مخادع - احتمال ارتداد صاعد" if lang == "ar" else "Fake - Bullish Reversal Risk"
-                        market_action += " | فخ بيعي وامتصاص للعروض" if lang == "ar" else " | Bear Trap & Supply Absorption"
-                    elif cvd_sig == "Hidden_Distribution" or (sell_v > buy_v * 1.5):
-                        trend_str = "قوي - تصريف مؤسساتي" if lang == "ar" else "Strong - Inst. Distribution"
-                        
-                    # المشتقات في حالة الهبوط
-                    if fut_sig == "Short_Squeeze":
-                        # السكويز هنا يعني صعود مفاجئ يخالف الترند الهابط (خطر على صفقات البيع)
-                        trend_str = "خطر ارتداد صاعد - Short Squeeze" if lang == "ar" else "Short Squeeze Risk"
-                    elif fut_sig == "Short_Covering":
-                        trend_str = "ضعيف - جني أرباح للمراكز البيعية" if lang == "ar" else "Weak - Bearish Profit Taking"
-                    
-        except Exception as e:
-            print(f"Error injecting radar data into analysis: {e}")
-            # في حال فشل الاتصال، سيعتمد البوت بسلاسة على المتغيرات الكلاسيكية المحسوبة في الخطوة 1
+        # 3. حساب الدعم والمقاومة والأهداف بناءً على الاتجاه "المُوحّد" لمنع التضارب
+        trend_dir, trend_str, market_action, adx_val, calc_sl, calc_tp1, calc_tp2, calc_tp3, calc_sup, calc_res = calculate_smart_trend_and_targets(
+            df, price, db_vol_float, lang, override_trend=final_trend_dir
+        )
 
+        # 4. تكييف النص ليطابق الاكتشاف المؤسساتي بدقة
+        if trend_dir == "Bullish":
+            if classic_trend == "Bearish":
+                trend_str = "قوي (اكتشاف فخ بيعي وانعكاس)" if lang == "ar" else "Strong (Bear Trap)"
+                market_action += " | الحيتان تشتري سراً وتمتص العروض للهبوط" if lang == "ar" else " | Whales absorbing supply"
+            elif fut_sig == "Short_Squeeze":
+                trend_str = "انفجار سعري وشيك" if lang == "ar" else "Imminent Squeeze"
+        elif trend_dir == "Bearish":
+            if classic_trend == "Bullish":
+                trend_str = "(تصريف مخفي في القمة)" if lang == "ar" else "(Hidden Distribution)"
+                market_action += " | فخ شرائي، الحيتان تفرغ محافظها" if lang == "ar" else " | Bull trap, whales distributing"
+            elif fut_sig == "Short_Covering":
+                trend_str = "ضعيف - إغلاق شورت" if lang == "ar" else "Weak - Short Covering"
 
         # 🟢 استعادة تعريف متغيرات RSI و MACD لتجنب خطأ NameError
         macd_fmt = format_price(last_macd) if 'last_macd' in locals() and last_macd is not None else "0.0"
