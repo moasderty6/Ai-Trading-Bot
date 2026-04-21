@@ -35,7 +35,16 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CMC_KEY = os.getenv("CMC_API_KEY")
 BINANCE_API_KEY = "rvApoDI6XRYcki1r2QTnPUBs3QwESzrpTVKohgjbK1zxSzlvrFPxAbZKr94xA2Lx"
-BINANCE_BASE = "https://api.binance.com/api/v3"
+# قائمة مسارات بايننس الرسمية للتهرب من الليمت وتوزيع الحمل
+# --- التعديل في أعلى الكود ---
+
+# قائمة المسارات التي تمر عبر الجسر السري (Cloudflare Worker)
+BINANCE_BASES = [
+    "https://binance-sain.mo-dahoh.workers.dev"
+]
+
+def get_random_binance_base():
+    return random.choice(BINANCE_BASES)
 BINANCE_HEADERS = {"X-MBX-APIKEY": BINANCE_API_KEY}
 GATE_API_KEY = "a3f6a57b42f6106011e6890049e57b2e"
 GATE_API_SECRET = "1ac18e0a690ce782f6854137908a6b16eb910cf02f5b95fa3c43b670758f79bc"
@@ -151,7 +160,9 @@ async def get_recent_orderflow_delta(symbol, client, limit=500):
     بديل سريع وآمن للـ WebSocket: يقرأ آخر 500 صفقة تمت لتحديد الشراء/البيع العدواني
     """
     try:
-        res = await client.get(f"{BINANCE_BASE}/trades", params={"symbol": symbol, "limit": limit})
+        base_url = get_random_binance_base()
+        res = await client.get(f"{base_url}/api/v3/trades", params={"symbol": symbol, "limit": limit})
+
         if res.status_code == 200:
             trades = res.json()
             delta = 0.0
@@ -318,7 +329,9 @@ async def get_micro_cvd_absorption(symbol, client):
     """
     try:
         # جلب بيانات دقيقة جداً لآخر ساعتين
-        res = await client.get(f"https://api.binance.com/api/v3/klines", params={
+        base_url = get_random_binance_base()
+        res = await client.get(f"{base_url}/api/v3/klines", params={
+
             "symbol": symbol, "interval": "1m", "limit": 120
         }, timeout=5.0)
         
@@ -363,7 +376,9 @@ async def get_institutional_orderflow(symbol, client, minutes=15):
     start_time = end_time - (minutes * 60 * 1000)
     
     try:
-        res = await client.get(f"https://api.binance.com/api/v3/aggTrades", params={
+        base_url = get_random_binance_base()
+        res = await client.get(f"{base_url}/api/v3/aggTrades", params={
+
             "symbol": symbol,
             "startTime": start_time,
             "endTime": end_time
@@ -396,7 +411,9 @@ async def detect_market_regime(client):
     تحليل حالة السوق العامة (الماكرو) بناءً على حركة البيتكوين.
     """
     # جلب شمعة الـ 4 ساعات للبيتكوين لتحديد الاتجاه العام
-    res = await client.get(f"https://api.binance.com/api/v3/klines", params={"symbol": "BTCUSDT", "interval": "4h", "limit": 100})
+        # جلب شمعة الـ 4 ساعات للبيتكوين لتحديد الاتجاه العام
+    base_url = get_random_binance_base()
+    res = await client.get(f"{base_url}/api/v3/klines", params={"symbol": "BTCUSDT", "interval": "4h", "limit": 100})
     if res.status_code != 200:
         return {"trend": "Neutral", "volatility": "Normal", "adx": 20}
 
@@ -453,7 +470,9 @@ async def analyze_orderbook_depth(symbol, client, snapshots=3, delay=2.0):
     
     for i in range(snapshots):
         try:
-            res = await client.get(f"https://api.binance.com/api/v3/depth", params={"symbol": pair, "limit": 500})
+            base_url = get_random_binance_base()
+            res = await client.get(f"{base_url}/api/v3/depth", params={"symbol": pair, "limit": 500})
+
             if res.status_code == 200:
                 data = res.json()
                 bids = data['bids']
@@ -516,7 +535,7 @@ async def get_aggregated_orderbook(client: httpx.AsyncClient, symbol: str):
     sym_htx = f"{symbol.lower()}usdt" # HTX تتطلب الحروف الصغيرة
 
     urls = {
-        "binance": f"https://api.binance.com/api/v3/depth?symbol={sym_binance_mexc}&limit=50",
+        "binance": f"{get_random_binance_base()}/api/v3/depth?symbol={sym_binance_mexc}&limit=50",
         "bybit": f"https://api.bybit.com/v5/market/orderbook?category=spot&symbol={sym_binance_mexc}&limit=50",
         "gate": f"https://api.gateio.ws/api/v4/spot/order_book?currency_pair={sym_gate}&limit=50",
         "kucoin": f"https://api.kucoin.com/api/v1/market/orderbook/level2_100?symbol={sym_kucoin_okx}",
@@ -861,7 +880,7 @@ async def analyze_radar_coin(c, client, market_regime, sem):
 
             # 5. الفحص العميق (Order Flow + Global)            # 5. الفحص العميق (Order Flow + Global)            # 5. الفحص العميق (Order Flow + Global)# --- استبدال الفحص العميق رقم 5 بالتالي ---
                         # 5. الفحص العميق (Order Flow + Global)
-            if score >= 30.0:
+            if score >= 35.0:
                 # نأخذ 3 لقطات بفاصل ثانيتين
                 depth_data = await analyze_orderbook_depth(symbol, client, snapshots=3, delay=2.0)
                 if depth_data:
@@ -1010,7 +1029,9 @@ async def ai_opportunity_radar(pool):
                 market_regime = await detect_market_regime(client)
                 
                 # جلب بيانات بايننس اللحظية (24hr Ticker) بدون أي تأخير
-                res = await client.get("https://api.binance.com/api/v3/ticker/24hr", timeout=10)
+                                # جلب بيانات بايننس اللحظية (24hr Ticker) بدون أي تأخير
+                base_url = get_random_binance_base()
+                res = await client.get(f"{base_url}/api/v3/ticker/24hr", timeout=10)
 
                 
                 if res.status_code != 200:
@@ -1629,30 +1650,59 @@ async def search_dex_coin(symbol: str):
         print(f"DexScreener Error: {e}")
     return None
 
-async def get_candles_dex(network: str, pool_address: str, interval: str, limit: int = 500):
-    """تجلب الشموع من GeckoTerminal وتعيد ترتيبها لتطابق تنسيق Gate.io"""
-    if interval == "1d" or interval == "1w":
-        timeframe = "day"
-        aggregate = 1
-    else:
-        timeframe = "hour"
-        aggregate = 4
+async def get_candles_dex(network: str, pool_address: str, interval: str, limit: int = 500, retries: int = 3):
+    """تجلب الشموع من GeckoTerminal مع تخطي حماية كلاود فلير وعدم الاستسلام"""
+    
+    if interval == "1w":
+        timeframe, aggregate = "day", 1
+    elif interval == "1d" or interval == "daily":
+        timeframe, aggregate = "day", 1
+    else: 
+        timeframe, aggregate = "hour", 4
 
     url = f"https://api.geckoterminal.com/api/v2/networks/{network}/pools/{pool_address}/ohlcv/{timeframe}?aggregate={aggregate}&limit={limit}"
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            res = await client.get(url)
-            if res.status_code == 200:
-                data = res.json()
-                ohlcv_list = data["data"]["attributes"]["ohlcv_list"]
-                formatted_candles = []
-                for candle in ohlcv_list:
-                    t, o, h, l, c, v = candle
-                    formatted_candles.append([t, v, c, h, l, o])
-                return formatted_candles[::-1] 
-    except Exception as e:
-        print(f"GeckoTerminal Error: {e}")
+    
+    # 🟢 السر هنا: إضافة هيدر متصفح حقيقي لخداع حماية Cloudflare
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json;version=20230302"
+    }
+
+    async with httpx.AsyncClient() as client:
+        for attempt in range(retries):
+            try:
+                # أضفنا الـ headers للطلب
+                res = await client.get(url, headers=headers, timeout=15)
+                
+                if res.status_code == 200:
+                    data = res.json()
+                    ohlcv_list = data["data"]["attributes"]["ohlcv_list"]
+                    
+                    if not ohlcv_list or len(ohlcv_list) < 3:
+                        return None 
+                        
+                    formatted_candles = []
+                    for candle in ohlcv_list:
+                        t, o, h, l, c, v = candle
+                        formatted_candles.append([t, v, c, h, l, o])
+                        
+                    return formatted_candles[::-1] 
+                
+                # 🟢 التعديل الأهم: لا تستسلم فوراً! عالج كل الأخطاء المؤقتة (429، 403، 500، 502)
+                elif res.status_code in [429, 403, 500, 502, 503, 504]:
+                    print(f"⚠️ [GeckoTerminal] Blocked/Error ({res.status_code}). Retrying... (Attempt {attempt+1}/{retries})")
+                    await asyncio.sleep(2)
+                    continue
+                else:
+                    print(f"⚠️ [GeckoTerminal] Permanent error {res.status_code} for {pool_address}")
+                    break
+                    
+            except Exception as e:
+                print(f"⚠️ [GeckoTerminal] Connection error: {e}")
+                await asyncio.sleep(1)
+                
     return None
+
 
 @dp.message(F.text)
 async def handle_symbol(m: types.Message):
@@ -1700,39 +1750,49 @@ async def handle_symbol(m: types.Message):
     
     status_msg = await m.answer("⏳ جاري جلب السعر..." if lang=="ar" else "⏳ Fetching price...")
 
-    try:
-        async with httpx.AsyncClient() as client:
-            # بايننس تستخدم الرمز متصل بدون شرطة سفلية، مثلاً BTCUSDT
-            pair = f"{sym}USDT" 
-            
-            # تمرير مفتاحك الخاص في الهيدر
-            binance_headers = {
-                "X-MBX-APIKEY": "rvApoDI6XRYcki1r2QTnPUBs3QwESzrpTVKohgjbK1zxSzlvrFPxAbZKr94xA2Lx"
-            }
-            
-            # جلب السعر والفوليوم من بايننس باستخدام حسابك
-            res_binance = await client.get(
-                "https://api.binance.com/api/v3/ticker/24hr",
-                params={"symbol": pair},
-                headers=binance_headers,
-                timeout=10
-            )
-            
-            if res_binance.status_code == 200:
-                data_binance = res_binance.json()
-                price = float(data_binance["lastPrice"])
-                volume_24h = float(data_binance["quoteVolume"]) # الفوليوم بـ USDT
+    # --- بداية الكود الديناميكي الجديد ---
+    binance_success = False
+    
+    async with httpx.AsyncClient() as client:
+        pair = f"{sym}USDT" 
+        
+        # نظام المحاولات الذكي (3 محاولات لامتصاص أي تأخير أو Cold Start)
+        for attempt in range(3):
+            try:
+                base_url = get_random_binance_base()
+                res_binance = await client.get(
+                    f"{base_url}/api/v3/ticker/24hr",
+                    params={"symbol": pair},
+                    timeout=5.0 # تايم أوت قصير عشان المحاولات تكون سريعة
+                )
+                
+                if res_binance.status_code == 200:
+                    data_binance = res_binance.json()
+                    price = float(data_binance["lastPrice"])
+                    volume_24h = float(data_binance["quoteVolume"])
 
-                # محاولة جلب نسبة تغير الفوليوم من CMC
+                    user_session_data[uid] = {
+                        "sym": sym, "price": price, "volume_24h": volume_24h, 
+                        "lang": lang, "is_dex": False
+                    }
+                    binance_success = True
+                    break # نجحنا! نخرج من حلقة المحاولات
+                    
+                elif res_binance.status_code in [400, 404]:
+                    # بايننس تقول صراحة: العملة غير موجودة لدي.
+                    # نخرج فوراً للبحث في الديكس دون تضييع وقت
+                    break 
+                    
+                else:
+                    # خطأ سيرفر مؤقت، ننتظر ثانية ونحاول مجدداً
+                    await asyncio.sleep(1)
+                    
+            except httpx.RequestError:
+                # خطأ انقطاع اتصال أو Timeout (يحدث غالباً أول ثواني بعد التشغيل)
+                await asyncio.sleep(1)
 
-                user_session_data[uid] = {
-                    "sym": sym, "price": price, "volume_24h": volume_24h, 
-                    "lang": lang, "is_dex": False
-                }
-            else:
-                raise ValueError("Symbol not found in Binance")
-
-    except Exception:
+    # إذا فشلت بايننس (سواء العملة غير موجودة، أو السيرفر واقع بعد 3 محاولات) ننتقل للديكس
+    if not binance_success:
         dex_data = await search_dex_coin(sym)
         if dex_data:
             sym = dex_data["base_symbol"]
@@ -1744,10 +1804,11 @@ async def handle_symbol(m: types.Message):
             }
         else:
             error_text = (
-                f"❌ الرمز `{sym}` غير صحيح أو غير متوفر في منصات التداول." if lang=="ar" 
-                else f"❌ Symbol `{sym}` is invalid or not found on exchanges."
+                f"❌ الرمز `{sym}` غير صحيح أو غير متوفر في المنصات المركزية واللامركزية." if lang=="ar" 
+                else f"❌ Symbol `{sym}` is invalid or not found on CEX/DEX."
             )
             return await status_msg.edit_text(error_text, parse_mode=ParseMode.MARKDOWN)
+    # --- نهاية الكود الديناميكي الجديد ---
 
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="أسبوعي" if lang=="ar" else "Weekly", callback_data="tf_weekly"),
@@ -1777,12 +1838,14 @@ async def get_candles_binance(symbol: str, interval: str, limit: int = 500, retr
             await binance_rate_limit_event.wait()
 
             try:
+                base_url = get_random_binance_base()
                 res = await client.get(
-                    f"{BINANCE_BASE}/klines",
+                    f"{base_url}/api/v3/klines",
                     params={"symbol": clean_symbol, "interval": interval, "limit": limit},
                     headers=BINANCE_HEADERS,
                     timeout=10
                 )
+
                 if res.status_code == 200:
                     data = res.json()
                     formatted_candles = []
@@ -2020,7 +2083,7 @@ def calculate_smart_trend_and_targets(df, current_price, db_vol_change, lang="ar
     if fvg_target:
         # تنسيق السعر لتجنب الأرقام الطويلة
         fvg_display = f"{fvg_target:,.4f}" if fvg_target > 1 else f"{fvg_target:.8f}"
-        market_action += f" [هدف مغناطيسي FVG عند: {fvg_display}$]" if lang == "ar" else f" [Magnetic FVG Target at: {fvg_display}$]"
+        market_action += f" [هدف مغناطيسي عند: {fvg_display}]" if lang == "ar" else f" [Magnetic FVG Target at: {fvg_display}$]"
 
 
     try:
@@ -2302,11 +2365,18 @@ async def run_analysis(cb: types.CallbackQuery):
             real_trend = "صاعد" if trend_dir == "Bullish" else "هابط"
             trend_strength = trend_str
             
+                    # تجهيز المتغيرات للغتين وبناء البرومبت (محمية داخل شرط الشموع لتجنب أي خطأ)
+        if lang == "ar":
+            real_trend = "صاعد" if trend_dir == "Bullish" else "هابط"
+            trend_strength = trend_str
+            
             prompt = f"""
-أنت محلل فني خبير في شركة "NaiF CHarT". قم بصياغة هذا التحليل لعملة {clean_sym} بشكل احترافي ومختصر.
-البيانات محسوبة رياضياً وجاهزة، ⚠️ يمنع منعاً باتاً تغيير أرقام الأهداف أو الوقف ⚠️، فقط قم بترتيبها في القالب المطلوب واكتب تعليقاً فنياً دقيقاً في سطر واحد لكل مؤشر.
+أنت نظام آلي في شركة "NaiF CHarT" لتحليل العملات الرقمية وظيفتك الوحيدة هي إخراج النص كقالب جاهز تماماً.
+⚠️ تحذير صارم جداً: 
+1. يمنع منعاً باتاً إضافة أي كلمة أو جملة من عندك خارج القالب (ممنوع كتابة كلمات مثل "البيان الفني" أو أي مقدمات وخواتيم او اسهم لانك محلل عملات رقمية).
+2. قم فقط باستبدال الأقواس [ ] بالتعليق الفني المطلوب.
 
-⚠️ التزم بهذا القالب بحذافيره (استخدم HTML فقط):
+الناتج يجب أن يكون هذا النص بالضبط دون أي زيادة:
 
 📊 <b>التحليل لـ {clean_sym}</b> | {tf} | {format_price(price)}$
 الاتجاه: {real_trend} ({trend_strength})
@@ -2324,20 +2394,22 @@ TP3: <code>{format_price(calc_tp3)}</code>
 Stop Loss: <code>{format_price(calc_sl)}</code>
 
 📈 <b>تحليل المؤشرات</b>
-•Liquidity: {market_action} (اكتب سطر يعلق على هذه الحالة بالعربية فقط ولا حرف غير عربي)
-•RSI ({safe_rsi}): (اكتب سطر واحد يوضح التشبع أو الحياد بالعربية فقط ولا حرف غير عربي)
-•MACD ({macd_fmt}): (اكتب سطر واحد يوضح الزخم بالعربية فقط ولا حرف غير عربي)
-•ADX ({adx_val:.1f}): (اكتب سطر واحد يوضح قوة الترند بالعربية فقط ولا حرف غير عربي)
+• Liquidity: {market_action} [اكتب هنا سطر واحد فقط يعلق على حالة السيولة بالعربي فقط ولا حرف غير عربي]
+• RSI ({safe_rsi}): [اكتب هنا سطر واحد فقط يوضح حالة التشبع أو الحياد للعملة الرقمية بالعربي فقط ولا حرف غير عربي]
+• MACD ({macd_fmt}): [اكتب هنا سطر واحد فقط يوضح الزخم الإيجابي أو السلبي بالعربي فقط ولا حرف غير عربي]
+• ADX ({adx_val:.1f}): [اكتب هنا سطر واحد فقط يوضح قوة أو ضعف الترند بالعربي فقط ولا حرف غير عربي]
 """
         else:
             real_trend = "Bullish" if trend_dir == "Bullish" else "Bearish"
             trend_strength = trend_str
             
             prompt = f"""
-You are an expert Technical Analyst at "NaiF CHarT". Format this analysis for {clean_sym} professionally and concisely.
-The data is calculated mathematically and is completely ready. ⚠️ STRICT RULE: DO NOT change the TP or SL numbers ⚠️. Just arrange them in the required template and write a precise technical comment in one short line for each indicator.
+You are an automated system at "NaiF CHarT" for crypto analysis. Your ONLY job is to output the exact template below.
+⚠️ STRICT RULES:
+1. DO NOT add any extra text, titles, or comments outside the template. (NO phrases like "Technical Statement" or intros/outros or stocks because you're a cryptocurrency analyst).
+2. Replace the brackets [ ] with the requested comment only.
 
-⚠️ Strictly follow this template (Use HTML only):
+Your output MUST be exactly this format:
 
 📊 <b>Analysis: {clean_sym}</b> | {tf} | {format_price(price)}$
 Trend: {real_trend} ({trend_strength})
@@ -2355,14 +2427,11 @@ TP3: <code>{format_price(calc_tp3)}</code>
 Stop Loss: <code>{format_price(calc_sl)}</code>
 
 📈 <b>Indicator Analysis</b>
-• Liquidity: {market_action} (Write one line commenting on this action)
-• RSI ({safe_rsi}): (Write one line explaining overbought/oversold or neutrality)
-• MACD ({macd_fmt}): (Write one line explaining momentum)
-• ADX ({adx_val:.1f}): (Write one line explaining trend strength)
+• Liquidity: {market_action} [Write exactly one line commenting on this action]
+• RSI ({safe_rsi}): [Write exactly one line explaining overbought/oversold or neutrality for cryptocurrency]
+• MACD ({macd_fmt}): [Write exactly one line explaining momentum]
+• ADX ({adx_val:.1f}): [Write exactly one line explaining trend strength]
 """
-
-
-
     res = await ask_groq(prompt, lang=lang)
     await cb.message.answer(res, parse_mode=ParseMode.HTML)
     
