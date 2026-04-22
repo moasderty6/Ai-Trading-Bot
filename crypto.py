@@ -49,7 +49,7 @@ BINANCE_HEADERS = {"X-MBX-APIKEY": BINANCE_API_KEY}
 GATE_API_KEY = "a3f6a57b42f6106011e6890049e57b2e"
 GATE_API_SECRET = "1ac18e0a690ce782f6854137908a6b16eb910cf02f5b95fa3c43b670758f79bc"
 GATE_BASE = "https://api.gateio.ws/api/v4/spot/candlesticks"
-BLACKLISTED_COINS = {"TOMO", "COCOS", "LRC", "BUSD", "TUSD", "USDC", "USDE", "BFUSD", "RLUSD", "POLY", "XUSD"}
+BLACKLISTED_COINS = {"TOMO", "COCOS", "LRC", "BUSD", "TUSD", "USDC", "USDE", "BFUSD", "RLUSD", "POLY", "XUSD", "U", "USDT", "DAI", "USDP", "FDUSD", "USDD", "PYUSD", "FRAX", "LUSD", "GUSD", "ZUSD", "VAI", "MAI", "DOLA", "EURC", "EURT", "EURS", "AEUR", "EURA", "TRY", "BRL", "ZAR"}
 GROQ_KEYS_STR = os.getenv("GROQ_API_KEYS", "")
 GROQ_API_KEYS = [k.strip() for k in GROQ_KEYS_STR.split(",") if k.strip()]
 WEBHOOK_URL = os.getenv("WEBHOOK_URL") 
@@ -199,7 +199,11 @@ def train_xgboost_sync(records):
     df = pd.DataFrame(records)
     
     # تحديد المدخلات (Features) والمخرجات (Labels)
-    X = df[['z_score', 'cvd', 'imbalance', 'adx', 'rsi', 'whale_inflow_score']]
+        # تحديد المدخلات (11 بُعد مالي بدلاً من 6)
+    X = df[['z_score', 'cvd', 'imbalance', 'adx', 'rsi', 'whale_inflow_score', 
+            'ob_skewness', 'micro_volatility', 'cvd_divergence', 'funding_rate', 
+            'volume_ratio', 'sp500_trend', 'sentiment_score']]
+
     y = df['label']
     
     # إعدادات متقدمة للبيانات المالية المليئة بالضوضاء
@@ -247,7 +251,23 @@ def predict_signal_sync(features: dict) -> float:
     if AI_QUANT_MODEL is None:
         return -1.0 # -1 تعني أن الذكاء الاصطناعي لم يتدرب بعد
         
-    input_data = pd.DataFrame([features])
+        input_data = pd.DataFrame([{
+        'z_score': features.get('z_score', 0),
+        'cvd': features.get('cvd_usd', 0),
+        'imbalance': features.get('ofi_imbalance', 0),
+        'adx': features.get('adx', 0),
+        'rsi': features.get('rsi', 0),
+        'whale_inflow_score': features.get('whale_inflow', 0),
+        'ob_skewness': features.get('ob_skewness', 1.0),
+        'micro_volatility': features.get('micro_volatility', 0.0),
+        'cvd_divergence': features.get('cvd_divergence', 0.0),
+        'funding_rate': features.get('funding_rate', 0.0),
+        'volume_ratio': features.get('volume_ratio', 1.0),
+        'sp500_trend': features.get('sp500_trend', 0.0),
+        'sentiment_score': features.get('sentiment_score', 50.0)
+    }])
+
+
     # استخراج احتمالية الفئة 1 (نجاح)
     prob = AI_QUANT_MODEL.predict_proba(input_data)[0][1]
     return float(prob) * 100 # إرجاع النسبة المئوية
@@ -453,21 +473,20 @@ async def get_micro_cvd_absorption(symbol, client):
             
             # 🎯 معادلة القناص: السعر شبه ثابت (أقل من 1.5% حركة)، لكن الـ CVD يرتفع بانفجار (الحوت يمتص العروض)
                         # 🎯 معادلة القناص: السعر شبه ثابت (أقل من 2% حركة)، لكن الـ CVD يرتفع 
+                        # 🎯 معادلة القناص...
             if abs(price_change) < 0.02 and cvd_trend > (total_vol * 0.15):
-                return 30.0, "Micro_Silent_Accumulation" 
-            
+                return 30.0, "Micro_Silent_Accumulation", cvd_trend # 👈 التعديل هنا
+
             # كشف التصريف المخفي
             elif price_change > 0.02 and cvd_trend < -(total_vol * 0.15):
-                return -25.0, "Hidden_Distribution"
-
+                return -25.0, "Hidden_Distribution", cvd_trend # 👈 التعديل هنا
                 
     except Exception as e:
         pass
-    return 0.0, None
+    return 0.0, None, 0.0 # 👈 التعديل هنا
+
 async def get_institutional_orderflow(symbol, client, minutes=15):
-    """
-    يسحب الصفقات المجمعة لآخر 15 دقيقة متجاوزاً فخ الصفقات الفردية الوهمية.
-    """
+    """ يسحب الصفقات المجمعة لآخر 15 دقيقة """
     import time
     end_time = int(time.time() * 1000)
     start_time = end_time - (minutes * 60 * 1000)
@@ -475,30 +494,31 @@ async def get_institutional_orderflow(symbol, client, minutes=15):
     try:
         base_url = get_random_binance_base()
         res = await client.get(f"{base_url}/api/v3/aggTrades", params={
-
             "symbol": symbol,
             "startTime": start_time,
-            "endTime": end_time
+            "endTime": end_time,
+            "limit": 1000  # 👈 التعديل: إضافة اللييمت ضروري جداً لبايننس
         }, timeout=5.0)
         
         if res.status_code == 200:
             trades = res.json()
+            if not trades: return 0.0, 0.0, 0.0 # إذا كانت العملة ميتة
+            
             buy_vol = 0.0
             sell_vol = 0.0
-            
             for t in trades:
                 amount = float(t['q']) * float(t['p'])
-                # 'm' == True تعني أن البائع هو صانع السوق (شخص ما قام بالبيع كـ Taker)
-                if t['m']: 
-                    sell_vol += amount
-                else: 
-                    buy_vol += amount
+                if t['m']: sell_vol += amount
+                else: buy_vol += amount
                     
             delta = buy_vol - sell_vol
             return delta, buy_vol, sell_vol
-    except Exception:
-        pass
+        else:
+            print(f"⚠️ AggTrades Failed: {res.status_code} - {res.text}")
+    except Exception as e:
+        print(f"⚠️ Flow Error: {e}")
     return 0.0, 0.0, 0.0
+
 
 import ta
 import pandas as pd
@@ -560,85 +580,77 @@ import time
 
 async def detect_flash_spoofing_ws(symbol: str, duration: float = 4.0):
     """
-    تسجيل فيديو للأوردر بوك لمدة 4 ثوانٍ (بمعدل 10 إطارات في الثانية)
-    لكشف الجدران التي تظهر وتختفي بسرعة البرق (Flash Spoofing).
+    محرك Quant متقدم يحاكي Level 3 Data.
+    يقيس Order Flow Imbalance (OFI) و Orderbook Skew لكشف تلاعب الحيتان.
     """
     clean_symbol = symbol.replace("USDT", "").lower() + "usdt"
-    # نطلب أفضل 20 مستوى، بتحديث كل 100 ملي ثانية
     ws_url = f"wss://stream.binance.com:9443/ws/{clean_symbol}@depth20@100ms"
     
-    total_bids_vol = 0
-    total_asks_vol = 0
-    frames_count = 0
+    frames = []
     
-    # لتتبع حجم أكبر جدار شراء وبيع في كل إطار
-    max_bid_walls = []
-    max_ask_walls = []
-
     try:
-        # نفتح الاتصال لمدة محددة فقط (مثلاً 4 ثوانٍ)
         async with websockets.connect(ws_url, ping_interval=None) as ws:
             start_time = time.time()
-            
             while time.time() - start_time < duration:
                 try:
-                    # ننتظر التحديث (إذا تأخر أكثر من ثانية نتجاوزه)
                     msg = await asyncio.wait_for(ws.recv(), timeout=1.0)
                     data = json.loads(msg)
+                    if not data.get('bids') or not data.get('asks'): continue
                     
-                    bids = data.get('bids', [])
-                    asks = data.get('asks', [])
+                    # استخراج الأسعار والأحجام لأول 10 مستويات فقط (السيولة الفعالة)
+                    bids = np.array([[float(p), float(v)] for p, v in data['bids'][:10]])
+                    asks = np.array([[float(p), float(v)] for p, v in data['asks'][:10]])
                     
-                    if not bids or not asks:
-                        continue
-
-                    # حساب السيولة في هذا الإطار (Frame)
-                    current_bids_vol = sum(float(b[0]) * float(b[1]) for b in bids)
-                    current_asks_vol = sum(float(a[0]) * float(a[1]) for a in asks)
-                    
-                    total_bids_vol += current_bids_vol
-                    total_asks_vol += current_asks_vol
-                    frames_count += 1
-                    
-                    # تسجيل أكبر جدار في هذه اللحظة (أكبر أوردر مفرد)
-                    max_bid_walls.append(max(float(b[0]) * float(b[1]) for b in bids))
-                    max_ask_walls.append(max(float(a[0]) * float(a[1]) for a in asks))
-
+                    frames.append({'bids': bids, 'asks': asks})
                 except asyncio.TimeoutError:
-                    continue # تجاهل التأخير المؤقت
-                    
+                    continue
     except Exception as e:
-        print(f"WS Depth Error for {symbol}: {e}")
         return None
 
-    if frames_count < 10: # إذا لم نلتقط بيانات كافية (أقل من 10 لقطات)
-        return None
+    if len(frames) < 10: return None
 
-    # --- محرك كشف التلاعب المالي (Quant Engine) ---
+    # --- 🧠 الرياضيات المؤسساتية لمحاكاة MBO ---
     
-    # 1. هل هناك جدار وهمي (Spoof) ظهر واختفى فجأة؟
-    # إذا كان أكبر جدار شراء مسجل أكبر بـ 5 أضعاف من متوسط الجدران الأخرى، فهذا يعني أنه جدار ظهر للحظة واختفى
-    avg_bid_wall = sum(max_bid_walls) / len(max_bid_walls)
-    max_recorded_bid = max(max_bid_walls)
-    is_bid_spoof = max_recorded_bid > (avg_bid_wall * 5.0)
+    # 1. Orderbook Skew (انحراف الأوردر بوك): هل السيولة مضغوطة أم متباعدة؟
+    # الحيتان تضغط الأسعار قريباً من السعر الحالي لترويع القطيع
+    last_frame = frames[-1]
+    bid_distances = last_frame['bids'][0, 0] - last_frame['bids'][:, 0]
+    ask_distances = last_frame['asks'][:, 0] - last_frame['asks'][0, 0]
+    
+    # إذا كانت المسافات بين طلبات الشراء صغيرة جداً مقارنة بالبيع، فهناك حوت يضغط السعر للأعلى
+    skewness = np.sum(ask_distances) / (np.sum(bid_distances) + 0.0001) 
 
-    avg_ask_wall = sum(max_ask_walls) / len(max_ask_walls)
-    max_recorded_ask = max(max_ask_walls)
-    is_ask_spoof = max_recorded_ask > (avg_ask_wall * 5.0)
+    # 2. Order Flow Imbalance (OFI): حساب التغير التفاضلي (التلاعب بالطلبات)
+    # هذا يغنينا عن الـ Order ID، فهو يقيس التغير الصافي في السيولة عبر اللقطات
+    ofi_score = 0
+    spoof_flags = 0
+    
+    for i in range(1, len(frames)):
+        prev_bids, curr_bids = frames[i-1]['bids'], frames[i]['bids']
+        prev_asks, curr_asks = frames[i-1]['asks'], frames[i]['asks']
+        
+        best_bid_prev, best_bid_curr = prev_bids[0, 0], curr_bids[0, 0]
+        best_ask_prev, best_ask_curr = prev_asks[0, 0], curr_asks[0, 0]
+        
+        bid_vol_prev, bid_vol_curr = np.sum(prev_bids[:, 1]), np.sum(curr_bids[:, 1])
+        ask_vol_prev, ask_vol_curr = np.sum(prev_asks[:, 1]), np.sum(curr_asks[:, 1])
 
-    # 2. الخلل العام في السيولة (Orderbook Imbalance)
-    avg_bids = total_bids_vol / frames_count
-    avg_asks = total_asks_vol / frames_count
-    imbalance = (avg_bids - avg_asks) / (avg_bids + avg_asks) if (avg_bids + avg_asks) > 0 else 0
+        # حساب הـ OFI
+        e_bid = bid_vol_curr if best_bid_curr >= best_bid_prev else -bid_vol_prev if best_bid_curr < best_bid_prev else bid_vol_curr - bid_vol_prev
+        e_ask = ask_vol_curr if best_ask_curr <= best_ask_prev else -ask_vol_prev if best_ask_curr > best_ask_prev else ask_vol_curr - ask_vol_prev
+        ofi_score += (e_bid - e_ask)
+        
+        # كشف الـ Spoofing الصارخ (جدار يختفي فجأة بدون تنفيذ صفقات)
+        if abs(bid_vol_curr - bid_vol_prev) > (bid_vol_prev * 2.0): spoof_flags -= 1 # سحب جدار شراء
+        if abs(ask_vol_curr - ask_vol_prev) > (ask_vol_prev * 2.0): spoof_flags += 1 # سحب جدار بيع
 
     return {
-        "imbalance": round(imbalance, 2), # من -1 (سيطرة بائعين) إلى 1 (سيطرة مشترين)
-        "is_bid_spoof": is_bid_spoof,     # فخ شراء وهمي (لتصريف العملة)
-        "is_ask_spoof": is_ask_spoof,     # فخ بيع وهمي (لتجميع العملة بسعر رخيص)
-        "real_support": avg_bids
+        "imbalance": round(ofi_score / len(frames), 2),
+        "skewness": round(skewness, 2), # متغير جديد للـ ML
+        "is_bid_spoof": spoof_flags < -2, 
+        "is_ask_spoof": spoof_flags > 2,
+        "real_support": np.sum(last_frame['bids'][:, 0] * last_frame['bids'][:, 1])
     }
-
-
 async def get_aggregated_orderbook(client: httpx.AsyncClient, symbol: str):
     """
     جلب ودمج الأوردر بوك من 8 منصات لقراءة ضغط الحيتان
@@ -853,7 +865,8 @@ async def get_futures_liquidity(symbol: str, client: httpx.AsyncClient, current_
             oi_data = oi_res.json()
             fund_data = fund_res.json()
 
-            if len(oi_data) < 2: return 0.0, None
+            if len(oi_data) < 2: return 0.0, None, 0.0
+
 
             old_oi = float(oi_data[0]["sumOpenInterest"])
             current_oi = float(oi_data[-1]["sumOpenInterest"])
@@ -872,15 +885,16 @@ async def get_futures_liquidity(symbol: str, client: httpx.AsyncClient, current_
                 score_modifier -= 25.0
                 futures_signal = "Short_Covering"
             
+                        # ... كودك الحالي
             if funding_rate < -0.0005: 
                 score_modifier += 12.0
                 if not futures_signal: futures_signal = "Short_Squeeze"
             elif funding_rate > 0.0005:
                 score_modifier -= 10.0
 
-            return score_modifier, futures_signal
+            return score_modifier, futures_signal, funding_rate # 👈 التعديل: أضفنا funding_rate للناتج
     except Exception: pass
-    return 0.0, None
+    return 0.0, None, 0.0 # 👈 التعديل: أضفنا 0.0 للناتج في حال الخطأ
 
 def calculate_volume_zscore(df, window=720):
     """
@@ -976,13 +990,16 @@ async def analyze_radar_coin(c, client, market_regime, sem):
 
 
             # 2. فلتر CVD
-            micro_cvd_boost, micro_cvd_signal = await get_micro_cvd_absorption(symbol, client)
+                        # 2. فلتر CVD
+                        # 2. فلتر CVD
+            micro_cvd_boost, micro_cvd_signal, micro_cvd_trend = await get_micro_cvd_absorption(f"{symbol}USDT", client)
             score += micro_cvd_boost
             if micro_cvd_signal: 
                 tags.append(micro_cvd_signal)
             # 3. فلتر المشتقات
+                        # 3. فلتر المشتقات
             old_price_val = df["close"].iloc[-3] if len(df) > 3 else df["open"].iloc[0]
-            futures_boost, futures_signal = await get_futures_liquidity(symbol, client, price, old_price_val)
+            futures_boost, futures_signal, funding_val = await get_futures_liquidity(symbol, client, price, old_price_val)
             score += futures_boost
             if futures_signal: tags.append(futures_signal)
 
@@ -1003,7 +1020,7 @@ async def analyze_radar_coin(c, client, market_regime, sem):
                 tags.append("RSI_Div")
 
             # 5. الفحص العميق (Order Flow + Global)            # 5. الفحص العميق (Order Flow + Global)            # 5. الفحص العميق (Order Flow + Global)# --- استبدال الفحص العميق رقم 5 بالتالي ---            # 5. الفحص العميق (Order Flow + Global)
-            if score >= 30.0:
+            if score >= 35.0:
                 # 🔴 التحديث الجديد: تشغيل فيديو الأوردر بوك لمدة 4 ثوانٍ
                 depth_data = await detect_flash_spoofing_ws(symbol, duration=4.0)
                 
@@ -1028,7 +1045,9 @@ async def analyze_radar_coin(c, client, market_regime, sem):
 
             
                 # فحص السيولة المؤسساتية لآخر 15 دقيقة
-                delta_usd, buy_v, sell_v = await get_institutional_orderflow(symbol, client, minutes=15)
+                                # فحص السيولة المؤسساتية لآخر 15 دقيقة
+                delta_usd, buy_v, sell_v = await get_institutional_orderflow(f"{symbol}USDT", client, minutes=15)
+
                 
                 # إذا كان حجم الشراء ضعف حجم البيع، والسيولة ضخمة (أكثر من نصف مليون دولار في 15 دقيقة)
                 if buy_v > (sell_v * 2.0) and buy_v > 500_000:
@@ -1057,19 +1076,24 @@ async def analyze_radar_coin(c, client, market_regime, sem):
             
             # 🟢 محرك تسمية الإشارة الذكي (Short & Punchy Signal Names)
                         # 🟢 محرك تسمية الإشارة الذكي (المصحح والمطور)
+                        # 🟢 محرك تسمية الإشارة الذكي (بدون مبالغة أو FOMO)
             final_signal = "High Probability Setup 🎯"
             
             # 1. إشارات الخطر (تمنع إرسال العملة)
             if "Fake_Pump" in tags or "Flash_Spoofing_Manipulation" in tags or "Short_Covering" in tags or "Late_FOMO" in tags or "Hidden_Distribution" in tags:
                 return None 
                 
-            # 2. الإشارات الأسطورية (سكور فوق 90)
-            if score >= 90.0:
-                final_signal = "Massive Institutional Accumulation 🐋"
+            # 🌟 2. مستوى الشذوذ المطلق (سكور فوق 95) - اسم تقني جاف
+            if score >= 95.0:
+                final_signal = "Deep Liquidity Absorption 🏦" # (امتصاص عميق للسيولة)
+                
+            # 🐋 3. مستوى الحيتان (سكور من 90 إلى 94.9)
+            elif score >= 90.0:
+                final_signal = "Institutional Orderflow 🐋" # (تدفق أوامر مؤسساتي)
             
-            # 3. الإشارات القوية المحددة (تم تصحيحها)
+            # 🦈 4. الإشارات القوية المحددة (تحت الـ 90)
             elif "Micro_Silent_Accumulation" in tags and "Institutional_Buy_Spike" in tags: 
-                final_signal = "Aggressive Whale Accumulation 🐋"
+                final_signal = "Active Accumulation 🦈" # (تجميع نشط - مسحنا كلمة هجومي)
             elif "Short_Squeeze" in tags: 
                 final_signal = "(Short Squeeze) 🔥"
             elif "Z_Anom_Silent" in tags and "OI_Rising" in tags: 
@@ -1077,9 +1101,10 @@ async def analyze_radar_coin(c, client, market_regime, sem):
             elif "Squeeze" in tags and "OB_Buy" in tags: 
                 final_signal = "(Liquidity Breakout) ⚡"
             elif "Micro_Silent_Accumulation" in tags or "Wall_Absorption_Pre_Breakout" in tags: 
-                final_signal = "Silent Institutional Accumulation 🧲"
+                final_signal = "Silent Accumulation 🧲" 
             elif "Z_Anom_Silent" in tags or "Smart_Accumulation" in tags: 
                 final_signal = "Smart Money Inflow 💸"
+
 
             avg_vol_20 = df["volume"].rolling(20).mean().iloc[-1]
             avg_vol_5 = df["volume"].rolling(5).mean().iloc[-1]
@@ -1108,14 +1133,33 @@ async def analyze_radar_coin(c, client, market_regime, sem):
                 # 2. تجهيز الملامح (Features) للذكاء الاصطناعي
                                 # 2. تجهيز الملامح (Features) للذكاء الاصطناعي
                                 # 2. تجهيز الملامح (Features) للذكاء الاصطناعي
+                                # 2. تجهيز مصفوفة بيانات مؤسساتية (Dimensionality Expansion)
+                
+                # حساب تقلب السعر الدقيق (Micro-Volatility) لآخر 20 شمعة
+                micro_volatility = df['close'].tail(20).pct_change().std() * 100
+                
+                # حساب انحراف مسار السيولة (CVD Divergence) - هل السعر يصعد بينما CVD يهبط؟
+                cvd_divergence = 1.0 if (price > ema200_val and delta_usd < 0) else -1.0 if (price < ema200_val and delta_usd > 0) else 0.0
+
+                # جلب معدل التمويل الحالي (Funding Rate) من مصفوفة الـ Futures التي حسبناها مسبقاً
+                # إذا كان التمويل سالباً بقوة، الحيتان تضغط السعر صعوداً لتصفية البائعين
+
                 ml_features = {
                     'z_score': float(current_z),
-                    'cvd': float(delta_usd), # ✅ التعديل هنا: تمرير صافي السيولة الحقيقي بالدولار (إيجابي أو سلبي)
-                    'imbalance': float(locals().get('global_ob_pressure', 0)),
+                    'cvd_usd': float(delta_usd),
+                    'ofi_imbalance': float(locals().get('depth_data', {}).get('imbalance', 0) if locals().get('depth_data') else 0.0),
+                    'ob_skewness': float(locals().get('depth_data', {}).get('skewness', 1.0) if locals().get('depth_data') else 1.0),
                     'adx': float(current_adx),
                     'rsi': float(last_rsi),
-                    'whale_inflow_score': float(whale_inflow)
+                    'whale_inflow': float(whale_inflow),
+                    'micro_volatility': float(micro_volatility) if not pd.isna(micro_volatility) else 0.0,
+                    'cvd_divergence': float(cvd_divergence),
+                    'funding_rate': float(funding_val),
+                    'volume_ratio': float(current_vol_ratio),
+                    'sp500_trend': float(MACRO_CACHE["sp500_trend"]),     # 🌍 بُعد الماكرو الجديد
+                    'sentiment_score': float(MACRO_CACHE["sentiment_score"]) # 🧠 بُعد المشاعر الجديد
                 }
+
                 
                 # 3. سؤال الذكاء الاصطناعي عن رأيه (في مسار خلفي)
                 ai_probability = await asyncio.to_thread(predict_signal_sync, ml_features)
@@ -1166,33 +1210,31 @@ async def handle_binance_rate_limit(retry_after: int = 60):
         # إرجاع الإشارة خضراء (تستيقظ جميع المهام وتكمل عملها تلقائياً)
         binance_rate_limit_event.set() 
 async def log_signal_for_ml(pool, symbol: str, price: float, features: dict):
-    """
-    تسجيل بيانات الإشارة في قاعدة البيانات فور التقاطها من الرادار (حتى قبل موافقة الأدمن).
-    يمنع التكرار: لا يسجل نفس العملة إذا تم تسجيلها في آخر 4 ساعات.
-    """
     async with pool.acquire() as conn:
-        # 🛡️ فلتر التكرار الذكي: إذا وصلت العملة للأدمن وعمل مسح (Clear)، لن تسجل كبيانات مكررة
         exists = await conn.fetchval("""
             SELECT 1 FROM ml_training_data 
             WHERE symbol = $1 AND signal_time > CURRENT_TIMESTAMP - INTERVAL '24 hours'
         """, symbol)
-        
-        if exists:
-            return # العملة مسجلة حديثاً، تجاهل التسجيل المزدوج لحماية جودة التدريب
+        if exists: return 
 
+        # إدخال البيانات الممتدة
         await conn.execute("""
             INSERT INTO ml_training_data 
-            (symbol, entry_price, z_score, cvd, imbalance, adx, rsi, whale_inflow_score)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            (symbol, entry_price, z_score, cvd, imbalance, adx, rsi, whale_inflow_score,
+             ob_skewness, micro_volatility, cvd_divergence, funding_rate, volume_ratio,
+             sp500_trend, sentiment_score)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         """, 
         symbol, price, 
-        features.get('z_score', 0.0), 
-        features.get('cvd', 0.0), 
-        features.get('imbalance', 0.0), 
-        features.get('adx', 0.0), 
-        features.get('rsi', 0.0),
-        features.get('whale_inflow_score', 0.0)) # 👈 تم إضافة سكور الحيتان هنا
+        features.get('z_score', 0.0), features.get('cvd_usd', 0.0), 
+        features.get('ofi_imbalance', 0.0), features.get('adx', 0.0), 
+        features.get('rsi', 0.0), features.get('whale_inflow', 0.0),
+        features.get('ob_skewness', 1.0), features.get('micro_volatility', 0.0),
+        features.get('cvd_divergence', 0.0), features.get('funding_rate', 0.0),
+        features.get('volume_ratio', 1.0),
+        features.get('sp500_trend', 0.0), features.get('sentiment_score', 50.0))
 
+        
         print(f"🧠 [ML Logger] Data captured for {symbol} at ${price}")
 
 async def ml_inspector_worker(pool):
@@ -1257,6 +1299,59 @@ async def ml_inspector_worker(pool):
             print(f"⚠️ ML Inspector Error: {e}")
             
         await asyncio.sleep(600) # إعادة الفحص كل 10 دقائق
+# --- ذاكرة الماكرو والمشاعر اللحظية ---
+MACRO_CACHE = {
+    "sp500_trend": 0.0,      # نسبة تغير السوق الأمريكي اليوم
+    "sentiment_score": 50.0, # من 0 إلى 100
+}
+
+async def macro_data_worker():
+    """
+    عامل خلفي (Quant Macro Engine) يعمل كل 30 دقيقة.
+    يجلب مشاعر الكريبتو وحالة الأسهم الأمريكية ويخزنها في الذاكرة.
+    لا يستهلك أي ليمت ولا يؤثر على سرعة الرادار.
+    """
+    await asyncio.sleep(10) # انتظر حتى يعمل البوت
+    print("🌍 Macro Data Worker is live...")
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+
+    while True:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                # 1. جلب مؤشر المشاعر (Fear & Greed)
+                try:
+                    fng_res = await client.get("https://api.alternative.me/fng/?limit=1")
+                    if fng_res.status_code == 200:
+                        data = fng_res.json()
+                        MACRO_CACHE["sentiment_score"] = float(data['data'][0]['value'])
+                except Exception as e:
+                    print(f"⚠️ Sentiment API Error: {e}")
+
+                # 2. جلب حالة السوق الأمريكي (S&P 500 ETF - SPY)
+                try:
+                    spy_res = await client.get(
+                        "https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=2d",
+                        headers=headers
+                    )
+                    if spy_res.status_code == 200:
+                        chart_data = spy_res.json()['chart']['result'][0]['indicators']['quote'][0]
+                        closes = chart_data['close']
+                        # حساب نسبة التغير بين إغلاق أمس والسعر الحالي
+                        if len(closes) >= 2 and closes[-1] and closes[-2]:
+                            pct_change = ((closes[-1] - closes[-2]) / closes[-2]) * 100
+                            MACRO_CACHE["sp500_trend"] = round(pct_change, 2)
+                except Exception as e:
+                    print(f"⚠️ S&P 500 API Error: {e}")
+                    
+                print(f"🔄 [Macro Updated] Sentiment: {MACRO_CACHE['sentiment_score']} | S&P500 Trend: {MACRO_CACHE['sp500_trend']}%")
+                
+        except Exception as e:
+            pass
+            
+        await asyncio.sleep(1800) # التحديث كل نصف ساعة
 
 async def ai_opportunity_radar(pool):
     print("🚀 تم تشغيل الرادار الشامل (وضع صيد القيعان)...")
@@ -1358,40 +1453,49 @@ async def ai_opportunity_radar(pool):
                 ob_pressure_val = f"{best_meta.get('ob_pressure', 1.0):.2f}"
 
                 prompt_ar = f"""
-أنت محلل كمي (Quant) في NaiF CHarT Intelligence Lab.
-اكتب تقرير فحص سريع لعملة {symbol} بناءً على هذه المعطيات:
-- Z-Score (مؤشر التجميع الصامت): {z_score_val}
-- تدفق السيولة الذكية: أعلى بـ {vol_ratio_val} ضعف.
-- ضغط الأوردر بوك: المشترون أقوى بـ {ob_pressure_val}x.
-- قوة الإجماع التقني: {best_meta.get('confluence', 0)}
-- مؤشرات الاتجاه: ADX: {best_meta['adx']} | RSI: {best_meta['rsi']}
+أنت محلل بيانات كمية (Quant). المهمة: كتابة 4 نقاط تحليلية دقيقة ومباشرة فقط. لا تكتب أي مقدمات، أو تحيات، أو استنتاجات.
+البيانات الخام لعملة {symbol}:
+- شذوذ الفوليوم (Z-Score): {z_score_val}
+- نسبة السيولة (Current/Avg Vol): {vol_ratio_val}
+- ضغط الأوردر بوك (Bids/Asks): {ob_pressure_val}
+- الإجماع الفني: {best_meta.get('confluence', 0)}
+- الزخم: ADX: {best_meta['adx']} | RSI: {best_meta['rsi']}
 
-التعليمات الصارمة:
-1. التنويع: لا تكرر نفس العبارات في كل تحليل. استخدم زوايا مختلفة (مرة ركز على امتصاص العروض، ومرة على الشراء الهجومي، ومرة على جفاف السيولة البيعية).
-2. اكتب 3 نقاط قصيرة جداً (لا تتجاوز 3 أسطر) باستخدام HTML (•).
-3. لا تقم بسرد الأرقام كما هي بشكل ممل، بل ادمجها في التحليل (مثلاً: "تضاعف السيولة بـ {vol_ratio_val} مرات يؤكد...").
-4. ممنوع استخدام كلمات الإثارة (انفجار، صاروخ، فرصة ذهبية، هائل). حافظ على لغة مؤسساتية جافة.
+قواعد التفسير المالي (التزم بها حرفياً):
+1. ضغط الأوردر بوك: إذا كان < 1 (سيطرة بيعية/امتصاص). إذا > 1 (طلب هجومي).
+2. نسبة السيولة: إذا كانت < 1 (جفاف سيولة/تجميع صامت مخفي). إذا > 1 (ضخ سيولة نشط).
+3. مؤشر Z-Score: الأرقام السلبية تعني انضغاطاً في القاع.
 
-الناتج باللغة العربية فقط:
+شروط المخرجات (OUTPUT RULES):
+- إياك أن تكتب عبارات مثل: "بناءً على البيانات"، "نلاحظ"، "مما يشير إلى". ادخل في التحليل فوراً.
+- المخرج يجب أن يكون 3 نقاط فقط تبدأ برمز (•).
+- اربط الأرقام بالواقع (مثال: "جفاف في السيولة مع نسبة فوليوم {vol_ratio_val} يعكس تجميعاً صامتاً من الحيتان").
+- لغة جافة، خالية من العواطف والمبالغات.
+- أسلوب الكتابة: اكتب بطريقة (Flash Notes). لا تشرح كل رقم في سطر منفصل، بل ادمجها بذكاء. مثال بدلاً من سرد الأرقام قل: (تكدس قوي في طلبات الشراء بضعف 1.84x يتزامن مع امتصاص صامت للسيولة 0.93x في قاع منضغط).
 """
 
                 prompt_en = f"""
-You are a Quant Analyst at NaiF CHarT Intelligence Lab.
-Write a dynamic, real-time brief for {symbol} based on these metrics:
-- Z-Score (Silent Accumulation): {z_score_val}
-- Smart Money Inflow: {vol_ratio_val}x higher.
-- Orderbook Pressure: Buyers dominate by {ob_pressure_val}x.
-- Technical Confluence: {best_meta.get('confluence', 0)}
-- Trend Indicators: ADX: {best_meta['adx']} | RSI: {best_meta['rsi']}
+Act as a strict Quant Analyst. Task: Write EXACTLY 4 analytical bullet points. NO intro, NO outro, NO fluff.
+Raw Data for {symbol}:
+- Volume Anomaly (Z-Score): {z_score_val}
+- Volume Ratio (Current/Avg): {vol_ratio_val}
+- Orderbook Ratio (Bids/Asks): {ob_pressure_val}
+- Confluence: {best_meta.get('confluence', 0)}
+- Momentum: ADX: {best_meta['adx']} | RSI: {best_meta['rsi']}
 
-Strict Instructions:
-1. Variety: Do not use the same phrasing every time. Vary your analytical angle (e.g., focus on supply absorption, aggressive market buying, or liquidity dry-up).
-2. Write exactly 3 short bullet points using HTML (•). Maximum 3 lines total.
-3. Do not just robotically list the numbers. Weave them into the analysis (e.g., "A {vol_ratio_val}x volume spike indicates...").
-4. ZERO hype words (moon, massive, explosion, huge). Keep a dry, institutional tone.
+Financial Interpretation Rules:
+1. Orderbook Ratio: If < 1 (Supply overhang/absorption). If > 1 (Aggressive demand).
+2. Volume Ratio: If < 1 (Liquidity dry-up/silent accumulation). If > 1 (Active institutional inflow).
+3. Z-Score: Negative means bottom compression.
 
-Output in English only:
+Strict Output Format:
+- NEVER use phrases like "Based on the data", "We can see", or "This indicates". Start the bullet points immediately.
+- Output EXACTLY 3 points starting with (•).
+- Weave numbers naturally (e.g., "Orderbook shows supply absorption with a ratio of {ob_pressure_val}").
+- Keep the tone cold, dry, and institutional. Zero hype.
+- Writing Style: Use 'Flash Notes' format. Do not explain metrics in isolation; fuse them into a cohesive narrative (e.g., 'Aggressive bid stacking at {ob_pressure_val}x aligns with silent liquidity absorption {vol_ratio_val}x at compressed lows').
 """
+
 
 
                 insight_ar = await ask_groq(prompt_ar, lang="ar")
@@ -1412,15 +1516,20 @@ Output in English only:
                     [InlineKeyboardButton(text="❌ إلغاء وتجاهل", callback_data=f"rad_rej_{signal_id}")]
                 ])
 
+                                # جلب حالة الذكاء الاصطناعي من النتائج (وإذا لم يجدها يضع Learning افتراضياً)
+                current_ai_status = best_meta.get('ai_status', 'Learning ⏳')
+
                 admin_text = (
                     f"⚠️ <b>تنبيه أدمن: قناص القيعان أنهى المسح 🎯</b>\n"
                     f"🏆 <b>أفضل عملة:</b> #{symbol}\n"
                     f"💵 السعر: ${format_price(price)}\n"
                     f"⚡ نوع التجميع: {signal}\n"
-                    f"📊 السكور: <b>{best_score}/100</b>\n\n"
+                    f"🤖 حالة الـ AI: <b>{current_ai_status}</b>\n"  # 👈 هذا هو السطر الذي سيظهر لك التغيير
+                    f"📊 تقييم الفرصة: <b>{best_score}/100</b>\n\n"
                     f"📝 <b>التحليل:</b>\n{insight_ar}\n\n"
                     f"هل تريد الموافقة على نشرها؟"
                 )
+
 
                 await bot.send_message(ADMIN_USER_ID, admin_text, reply_markup=admin_kb, parse_mode=ParseMode.HTML)
                 print(f"✅ تم اصطياد قاع {symbol} بسكور {best_score}!")
@@ -2548,6 +2657,7 @@ async def run_analysis(cb: types.CallbackQuery):
         except: pass
 
         # 1. ⚡ جلب البيانات المؤسساتية أولاً لمعرفة النية المخفية (قبل وضع الأهداف)
+                # 1. ⚡ جلب البيانات المؤسساتية أولاً لمعرفة النية المخفية (قبل وضع الأهداف)
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 old_price_val = df["close"].iloc[-3] if len(df) > 3 else price
@@ -2555,12 +2665,17 @@ async def run_analysis(cb: types.CallbackQuery):
                 flow_task = get_institutional_orderflow(f"{clean_sym}USDT", client, minutes=15)
                 futures_task = get_futures_liquidity(clean_sym, client, price, old_price_val)
                 
-                (cvd_boost, cvd_sig), (delta_usd, buy_v, sell_v), (fut_boost, fut_sig) = await asyncio.gather(
+                # استقبال البيانات مع القيمة الثالثة (funding_val)
+                                # استقبال البيانات بشكل كامل دون فقدان أي قيمة
+                (cvd_boost, cvd_sig, cvd_trend_val), (delta_usd, buy_v, sell_v), (fut_boost, fut_sig, funding_val) = await asyncio.gather(
                     cvd_task, flow_task, futures_task
                 )
                 z_score, _, _ = calculate_volume_zscore(df, window=720)
-        except Exception:
+        except Exception as e:
+            print(f"⚠️ Data Fetch Error in Manual Analysis: {e}")
             cvd_sig, buy_v, sell_v, fut_sig, z_score = None, 0, 0, None, 0
+            delta_usd, funding_val = 0.0, 0.0
+
 
         # 2. كشف الفخاخ وتوحيد الاتجاه        # 2. كشف الفخاخ والارتدادات لتوحيد الاتجاه
         ema20 = df['close'].ewm(span=20, adjust=False).mean().iloc[-1]
@@ -2919,13 +3034,23 @@ async def on_startup(app):
         await conn.execute("ALTER TABLE paid_users ADD COLUMN IF NOT EXISTS expiry_date TIMESTAMP")
         await conn.execute("ALTER TABLE users_info ADD COLUMN IF NOT EXISTS invited_by BIGINT")
         await conn.execute("ALTER TABLE users_info ADD COLUMN IF NOT EXISTS ref_count INTEGER DEFAULT 0")
+                # 🧠 ترقية جدول الذكاء الاصطناعي (إضافة كل الأعمدة المؤسساتية الجديدة إن لم تكن موجودة)
         await conn.execute("ALTER TABLE ml_training_data ADD COLUMN IF NOT EXISTS whale_inflow_score DOUBLE PRECISION DEFAULT 0.0")
+        await conn.execute("ALTER TABLE ml_training_data ADD COLUMN IF NOT EXISTS ob_skewness DOUBLE PRECISION DEFAULT 1.0")
+        await conn.execute("ALTER TABLE ml_training_data ADD COLUMN IF NOT EXISTS micro_volatility DOUBLE PRECISION DEFAULT 0.0")
+        await conn.execute("ALTER TABLE ml_training_data ADD COLUMN IF NOT EXISTS cvd_divergence DOUBLE PRECISION DEFAULT 0.0")
+        await conn.execute("ALTER TABLE ml_training_data ADD COLUMN IF NOT EXISTS funding_rate DOUBLE PRECISION DEFAULT 0.0")
+        await conn.execute("ALTER TABLE ml_training_data ADD COLUMN IF NOT EXISTS volume_ratio DOUBLE PRECISION DEFAULT 1.0")
+        await conn.execute("ALTER TABLE ml_training_data ADD COLUMN IF NOT EXISTS sp500_trend DOUBLE PRECISION DEFAULT 0.0")
+        await conn.execute("ALTER TABLE ml_training_data ADD COLUMN IF NOT EXISTS sentiment_score DOUBLE PRECISION DEFAULT 50.0")
+
         # 3. تفعيل حسابات الأدمن بشكل دائم
         initial_paid_users = {1317225334, 5527572646}
         for uid in initial_paid_users:
             await conn.execute("INSERT INTO paid_users (user_id) VALUES ($1) ON CONFLICT DO NOTHING", uid)
 
     asyncio.create_task(smart_radar_watchdog(pool))
+    asyncio.create_task(macro_data_worker()) # 🌍 تشغيل عامل الماكرو
     asyncio.create_task(radar_worker_process(pool))
     asyncio.create_task(ai_trainer_worker(pool)) # 🧠 تشغيل مدرب الذكاء الاصطناعي
     asyncio.create_task(ml_inspector_worker(pool)) # 🧠 تشغيل محقق الذكاء الاصطناعي
